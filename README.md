@@ -1,8 +1,28 @@
-# 任务台 MVP 0.2
+# 明庭
+
+[English](README.en.md)
+
+连接人与 Agent 的共享任务工作空间。当前版本：MVP 0.2。
 
 本机运行的 TypeScript 任务平台：MCP **只提供 `publish_task`**；发布任务和可重放的 `task.available` 事件一起落入 SQLite；独立 Codex 订阅连接器通过真实 HTTP SSE 接收事件、领取任务，再调用 Codex ACP。React 网页展示标题、任务描述、发布人，以及运行状态和人工审批。
 
 任务订阅是本平台的 HTTP 应用协议；Codex 执行使用标准 ACP v1。两者是独立链路。网页仍使用短轮询刷新界面，网页刷新不是任务订阅，也不是执行连接器。
+
+## 当前功能与支持范围
+
+| 功能       | 当前实现                                                                                      |
+| ---------- | --------------------------------------------------------------------------------------------- |
+| 发布任务   | MCP 唯一工具 `publish_task`，接收标题、描述、发布人名字；也可使用网页表单                     |
+| 任务列表   | React + TypeScript 网页展示标题、描述、发布人、状态、结果与审批；支持桌面、手机尺寸和明暗主题 |
+| 订阅与领取 | 独立 HTTP SSE 订阅、SQLite 持久事件、断线补发、原子领取和运行所有权                           |
+| 执行连接器 | 一个本机 Codex 连接器，通过开源 Codex ACP 适配器连接 Codex App Server                         |
+| 人工审批   | 展示原始工具上下文与选项；支持允许、拒绝、取消、超时和旧请求失效，不自动批准                  |
+| 恢复与状态 | 心跳租约、顺序幂等回传、进程退出恢复、显式重试；收到通知不等于执行成功                        |
+| 本地持久化 | SQLite 保存任务、运行、审批和有限 ACP 事件；任务通知事件支持重放                              |
+
+当前面向可信本机、单用户、单服务实例、单 Codex 执行器。未包含多 Harness、远端 worker、多用户登录/授权、任务依赖 DAG、聊天工作台、模型路由、自动 Git 合并或公网部署。仓库中的网页界面目前为中文；双语切换只针对 README。
+
+已有私有 Site 是仅使用浏览器本地数据的界面演示，不是运行此 Node 后端的地址，也不是 MCP 接入地址。
 
 ## 快速试用：无模型的完整传输闭环
 
@@ -103,6 +123,41 @@ Streamable HTTP 入口：`http://127.0.0.1:60390/mcp`。
     "description": "检查 README，补充安装和启动步骤。",
     "publisherName": "小林"
   }
+}
+```
+
+### 客户端接入示例
+
+先启动本机服务，再在支持 Streamable HTTP 的 MCP 客户端里配置上面的 URL。以 Codex CLI 为例，手动执行：
+
+```bash
+codex mcp add Mingting --url http://127.0.0.1:60390/mcp
+codex mcp list
+```
+
+也可以把下面配置**合并**进自己的 `~/.codex/config.toml`，不要覆盖已有配置：
+
+```toml
+[mcp_servers.Mingting]
+url = "http://127.0.0.1:60390/mcp"
+```
+
+格式参考 [OpenAI 的 MCP 配置文档](https://developers.openai.com/resources/docs-mcp)。其他客户端的文件名和配置结构不同，应选择 HTTP/Streamable HTTP；本项目不会自动修改你的客户端配置。
+
+### 参数 schema
+
+三个字段都必填，服务端会先去除首尾空白，拒绝空内容和额外字段：
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "description": { "type": "string", "minLength": 1, "maxLength": 16000 },
+    "publisherName": { "type": "string", "minLength": 1, "maxLength": 80 }
+  },
+  "required": ["title", "description", "publisherName"],
+  "additionalProperties": false
 }
 ```
 
