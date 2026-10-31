@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
+import { EventEmitter } from "node:events";
 import type {
   RequestPermissionRequest,
-  RequestPermissionResponse,
   JsonRpcId,
+  InitializeResponse,
+  SessionNotification,
 } from "@agentclientprotocol/sdk";
 import {
   LIMITS,
@@ -10,10 +12,13 @@ import {
   type PublishTask,
   type Decision,
   type Run,
-  type Task,
+  type Owner,
+  type Claim,
+  type ConnectorUpdate,
+  type DeliveryEvent,
 } from "../shared/protocol.js";
 import { Store } from "./store.js";
-import { CodexAdapter } from "./codex-adapter.js";
+import { validateAcp } from "./acp-validation.js";
 export class AppError extends Error {
   constructor(
     public status: number,
@@ -23,54 +28,71 @@ export class AppError extends Error {
   }
 }
 const now = () => new Date().toISOString();
-const cancelled = (): RequestPermissionResponse => ({
-  outcome: { outcome: "cancelled" },
-});
-type Pending = {
-  runId: string;
-  resolve: (v: RequestPermissionResponse) => void;
-  timer: NodeJS.Timeout;
-  cleanup: () => void;
-};
 export class TaskService {
-  private active?: { task: Task; run: Run; abort: AbortController };
-  private pending = new Map<string, Pending>();
-  private pumping = false;
+  private resumeNotBefore = 0;
   private closed = false;
-  private drainPromise: Promise<void> = Promise.resolve();
+  private timer: NodeJS.Timeout;
+  readonly events = new EventEmitter();
   constructor(
     public store: Store,
-    private adapter: CodexAdapter,
+    private workspace: string,
+    private mode: "fake" | "codex",
   ) {
+    this.resumeNotBefore = Math.max(
+      store.quarantineUntil(),
+      store.unfinished().length ? Date.now() + LIMITS.leaseMs : 0,
+    );
     store.recover();
-    this.kick();
+    this.events.setMaxListeners(LIMITS.subscribers * 2 + 4);
+    this.timer = setInterval(() => this.sweep(), LIMITS.sweepMs);
+    this.timer.unref();
+  }
+  private available(event: DeliveryEvent) {
+    this.events.emit("available", event);
   }
   publish(raw: PublishTask) {
     if (this.closed) throw new AppError(503, "服务正在停止");
     const input = publishTaskSchema.parse(raw);
     if (this.store.countActive() >= LIMITS.queue)
       throw new AppError(429, "队列已满");
-    const task = this.store.publish(input);
-    this.kick();
-    return { taskId: task.id };
+    const result = this.store.transaction(() => {
+      const task = this.store.publish(input);
+      return { task, event: this.store.deliver(task.id) };
+    });
+    this.available(result.event);
+    return { taskId: result.task.id };
   }
-  private kick() {
-    if (this.pumping || this.closed) return;
-    this.pumping = true;
-    this.drainPromise = Promise.resolve()
-      .then(() => this.drain())
-      .finally(() => {
-        this.pumping = false;
-        if (!this.closed && this.store.queued()) this.kick();
-      });
-  }
-  private async drain() {
-    while (!this.closed) {
-      const task = this.store.queued();
-      if (!task) break;
+  claim(taskId: string, owner: Owner): Claim {
+    if (this.closed) throw new AppError(503, "服务正在停止");
+    if (Date.now() < this.resumeNotBefore)
+      throw new AppError(409, "重启后等待旧连接器停止");
+    this.sweep();
+    return this.store.transaction(() => {
+      const t = this.store.task(taskId);
+      if (!t) throw new AppError(404, "任务不存在");
+      if (t.currentRunId) {
+        const old = this.store.run(t.currentRunId)!;
+        const lease = this.store.lease(old.id);
+        if (
+          !old.endedAt &&
+          lease?.ownerId === owner.ownerId &&
+          lease.claimId === owner.claimId
+        )
+          return {
+            task: t,
+            run: old,
+            ...owner,
+            leaseMs: LIMITS.leaseMs,
+            workspace: this.workspace,
+            mode: this.mode,
+          };
+      }
+      if (t.status !== "queued") throw new AppError(410, "任务已领取或已结束");
+      if (this.store.unfinished().length)
+        throw new AppError(409, "执行器忙；任务仍保留在队列");
       const run: Run = {
         id: randomUUID(),
-        taskId: task.id,
+        taskId,
         status: "running",
         sessionId: null,
         createdAt: now(),
@@ -79,105 +101,155 @@ export class TaskService {
         error: null,
         stopReason: null,
         discovery: null,
+        ownerId: owner.ownerId,
       };
-      task.status = "running";
-      task.currentRunId = run.id;
-      this.store.transaction(() => {
-        this.store.saveRun(run);
-        this.store.saveTask(task);
-      });
-      const abort = new AbortController();
-      this.active = { task, run, abort };
-      const timeout = setTimeout(
-        () => abort.abort(new Error("执行超时")),
-        LIMITS.runMs,
+      t.status = "running";
+      t.currentRunId = run.id;
+      this.store.saveRun(run);
+      this.store.saveTask(t);
+      this.store.saveLease(
+        run.id,
+        owner.ownerId,
+        owner.claimId,
+        Date.now() + LIMITS.leaseMs,
       );
-      try {
-        run.stopReason = await this.adapter.execute(
-          `${task.title}\n\n${task.description}`,
-          abort.signal,
-          {
-            session: (id) => {
-              run.sessionId = id;
-              this.store.saveRun(run);
-            },
-            discovery: (value) => {
-              run.discovery = value;
-              this.store.saveRun(run);
-            },
-            update: (value) => {
-              this.store.appendEvent(run.id, value);
-              const u = value.update;
-              if (
-                u.sessionUpdate === "agent_message_chunk" &&
-                u.content.type === "text"
-              )
-                run.output = (run.output + u.content.text).slice(
-                  -LIMITS.outputChars,
-                );
-              this.store.saveRun(run);
-            },
-            permission: (id, request, signal) =>
-              this.permission(task, run, id, request, signal),
-          },
-        );
-        if (!abort.signal.aborted) {
-          task.status = run.status =
-            run.stopReason === "end_turn"
-              ? "succeeded"
-              : run.stopReason === "cancelled"
-                ? "cancelled"
-                : "failed";
-          if (run.status === "failed")
-            run.error = "ACP 回合未正常结束：" + run.stopReason;
-        }
-      } catch (e) {
-        if (!["cancelled", "interrupted"].includes(task.status)) {
-          task.status = run.status = "failed";
-          run.error =
-            e instanceof Error ? e.message.slice(0, 2000) : "ACP 执行失败";
-        }
-      } finally {
-        clearTimeout(timeout);
-        this.expire(run.id);
-        run.endedAt = now();
-        this.store.transaction(() => {
-          this.store.saveRun(run);
-          this.store.saveTask(task);
-        });
-        this.active = undefined;
-      }
-    }
+      return {
+        task: t,
+        run,
+        ...owner,
+        leaseMs: LIMITS.leaseMs,
+        workspace: this.workspace,
+        mode: this.mode,
+      };
+    });
   }
-  private permission(
-    task: Task,
-    run: Run,
-    requestId: JsonRpcId,
-    request: RequestPermissionRequest,
-    signal: AbortSignal,
-  ): Promise<RequestPermissionResponse> {
+  private owned(runId: string, owner: Owner) {
+    const r = this.store.run(runId),
+      lease = this.store.lease(runId);
     if (
       this.closed ||
-      signal.aborted ||
-      this.active?.abort.signal.aborted ||
-      run.sessionId !== request.sessionId
+      !r ||
+      r.endedAt ||
+      !lease ||
+      lease.deadline <= Date.now() ||
+      lease.ownerId !== owner.ownerId ||
+      lease.claimId !== owner.claimId ||
+      this.store.task(r.taskId)?.currentRunId !== runId
     )
-      return Promise.resolve(cancelled());
-    const previous = this.store.approvals(run.id);
+      throw new AppError(410, "领取已失效，请停止原执行");
+    return { run: r, lease };
+  }
+  heartbeat(runId: string, owner: Owner) {
+    this.sweep();
+    const { run, lease } = this.owned(runId, owner);
+    this.store.saveLease(
+      runId,
+      lease.ownerId,
+      lease.claimId,
+      Date.now() + LIMITS.leaseMs,
+      lease.seq,
+    );
+    return {
+      status: run.status,
+      cancelRequested: run.status === "cancelled",
+      leaseMs: LIMITS.leaseMs,
+      workspace: this.workspace,
+      mode: this.mode,
+    };
+  }
+  report(runId: string, owner: Owner, seq: number, update: ConnectorUpdate) {
+    const previous = this.store.lease(runId);
+    if (
+      !this.closed &&
+      previous?.ownerId === owner.ownerId &&
+      previous.claimId === owner.claimId &&
+      seq <= previous.seq
+    )
+      return { duplicate: true };
+    const { run: r, lease } = this.owned(runId, owner);
+    if (seq <= lease.seq) return { duplicate: true };
+    if (seq !== lease.seq + 1) throw new AppError(409, "状态回传序号有缺口");
+    const t = this.store.task(r.taskId)!;
+    this.store.transaction(() => {
+      if (update.type === "session") {
+        if (r.sessionId && r.sessionId !== update.sessionId)
+          throw new AppError(409, "不能切换运行会话");
+        r.sessionId = update.sessionId;
+      } else if (update.type === "discovery") {
+        if (!validateAcp("InitializeResponse", update.discovery))
+          throw new AppError(400, "ACP 初始化结构无效");
+        r.discovery = update.discovery;
+      } else if (update.type === "notification") {
+        if (
+          !validateAcp("SessionNotification", update.notification) ||
+          update.notification.sessionId !== r.sessionId
+        )
+          throw new AppError(400, "ACP 通知无效或会话不匹配");
+        if (r.status !== "cancelled") {
+          this.store.appendEvent(runId, update.notification);
+          const u = update.notification.update;
+          if (
+            u.sessionUpdate === "agent_message_chunk" &&
+            u.content.type === "text"
+          )
+            r.output = (r.output + u.content.text).slice(-LIMITS.outputChars);
+        }
+      } else if (update.type === "finished") {
+        if (update.status === "succeeded" && update.stopReason !== "end_turn")
+          throw new AppError(400, "完成状态必须来自 ACP end_turn");
+        if (r.status !== "cancelled") {
+          r.status = update.status;
+          r.error = update.error ?? r.error;
+        }
+        r.stopReason = update.stopReason;
+        r.endedAt = now();
+        t.status = r.status;
+        this.expire(runId);
+      }
+      this.store.saveRun(r);
+      this.store.saveTask(t);
+      this.store.saveLease(
+        runId,
+        lease.ownerId,
+        lease.claimId,
+        Date.now() + LIMITS.leaseMs,
+        seq,
+      );
+    });
+    return { duplicate: false };
+  }
+  permission(
+    runId: string,
+    owner: Owner,
+    requestId: JsonRpcId,
+    request: RequestPermissionRequest,
+  ) {
+    const { run: r } = this.owned(runId, owner);
+    if (r.status === "cancelled") throw new AppError(410, "运行已取消");
+    if (
+      !validateAcp("RequestPermissionRequest", request) ||
+      request.sessionId !== r.sessionId
+    )
+      throw new AppError(400, "ACP 审批结构无效或会话不匹配");
+    const previous = this.store.approvals(runId);
+    const existing = previous.find((a) => a.requestId === requestId);
+    if (existing) {
+      if (JSON.stringify(existing.request) !== JSON.stringify(request))
+        throw new AppError(409, "重复审批 ID 的内容不同");
+      return { approvalId: existing.id };
+    }
     if (
       previous.length >= LIMITS.approvalsPerRun ||
-      this.pending.size >= LIMITS.pendingApprovals
+      previous.filter((a) => a.status === "pending").length >=
+        LIMITS.pendingApprovals
     ) {
-      this.cancel(task.id, "审批请求数量超限");
-      return Promise.resolve(cancelled());
+      this.cancel(r.taskId, "审批请求数量超限");
+      throw new AppError(410, "审批请求数量超限");
     }
-    if (previous.some((a) => a.requestId === requestId))
-      throw new AppError(409, "重复 ACP 请求 ID");
-    const id = randomUUID();
-    const approval = {
-      id,
-      taskId: task.id,
-      runId: run.id,
+    const a = {
+      id: randomUUID(),
+      taskId: r.taskId,
+      runId,
       sessionId: request.sessionId,
       requestId,
       request,
@@ -185,37 +257,50 @@ export class TaskService {
       optionId: null,
       createdAt: now(),
     };
-    task.status = run.status = "awaiting_approval";
+    r.status = "awaiting_approval";
+    const t = this.store.task(r.taskId)!;
+    t.status = "awaiting_approval";
     this.store.transaction(() => {
-      this.store.saveApproval(approval);
-      this.store.saveRun(run);
-      this.store.saveTask(task);
+      this.store.saveApproval(a);
+      this.store.saveRun(r);
+      this.store.saveTask(t);
     });
-    return new Promise((resolve) => {
-      const expire = () => this.expireOne(id);
-      const timer = setTimeout(() => {
-        expire();
-        this.cancel(task.id, "审批超时");
-      }, LIMITS.approvalMs);
-      const cleanup = () => signal.removeEventListener("abort", expire);
-      this.pending.set(id, { runId: run.id, resolve, timer, cleanup });
-      signal.addEventListener("abort", expire, { once: true });
-    });
+    return { approvalId: a.id };
+  }
+  permissionResult(runId: string, owner: Owner, approvalId: string) {
+    this.owned(runId, owner);
+    const a = this.store.approval(approvalId);
+    if (!a || a.runId !== runId) throw new AppError(404, "审批不存在");
+    return a.status === "pending"
+      ? { status: "pending" as const }
+      : a.status === "decided"
+        ? {
+            status: "resolved" as const,
+            response: {
+              outcome: { outcome: "selected" as const, optionId: a.optionId! },
+            },
+          }
+        : {
+            status: "resolved" as const,
+            response: { outcome: { outcome: "cancelled" as const } },
+          };
   }
   decide(id: string, decision: Decision) {
     const a = this.store.approval(id);
-    const callback = this.pending.get(id);
-    const active = this.active;
+    const r = a ? this.store.run(a.runId) : undefined;
+    const lease = r ? this.store.lease(r.id) : undefined;
     if (
       !a ||
       a.status !== "pending" ||
-      !callback ||
-      !active ||
-      active.abort.signal.aborted ||
-      active.run.id !== a.runId ||
+      !r ||
+      r.endedAt ||
+      r.status === "cancelled" ||
+      !lease ||
+      lease.deadline <= Date.now() ||
       a.runId !== decision.runId ||
       a.sessionId !== decision.sessionId ||
-      active.run.sessionId !== a.sessionId
+      r.sessionId !== a.sessionId ||
+      this.store.task(a.taskId)?.currentRunId !== r.id
     )
       throw new AppError(409, "审批已失效或不属于当前执行");
     if (!a.request.options.some((o) => o.optionId === decision.optionId))
@@ -224,63 +309,38 @@ export class TaskService {
     a.optionId = decision.optionId;
     this.store.transaction(() => {
       this.store.saveApproval(a);
-      const waiting = this.store
-        .approvals(a.runId)
-        .some((x) => x.status === "pending");
-      active.task.status = active.run.status = waiting
+      r.status = this.store.approvals(r.id).some((x) => x.status === "pending")
         ? "awaiting_approval"
         : "running";
-      this.store.saveRun(active.run);
-      this.store.saveTask(active.task);
+      const t = this.store.task(r.taskId)!;
+      t.status = r.status;
+      this.store.saveRun(r);
+      this.store.saveTask(t);
     });
-    this.pending.delete(id);
-    clearTimeout(callback.timer);
-    callback.cleanup();
-    callback.resolve({
-      outcome: { outcome: "selected", optionId: decision.optionId },
-    });
-  }
-  private expireOne(id: string) {
-    const p = this.pending.get(id);
-    if (!p) return;
-    this.pending.delete(id);
-    clearTimeout(p.timer);
-    p.cleanup();
-    const a = this.store.approval(id)!;
-    a.status = "expired";
-    this.store.saveApproval(a);
-    if (
-      this.active?.run.id === a.runId &&
-      this.active.task.status === "awaiting_approval" &&
-      !this.store.approvals(a.runId).some((x) => x.status === "pending")
-    ) {
-      this.active.task.status = this.active.run.status = "running";
-      this.store.saveRun(this.active.run);
-      this.store.saveTask(this.active.task);
-    }
-    p.resolve(cancelled());
   }
   private expire(runId: string) {
-    for (const [id, p] of this.pending)
-      if (p.runId === runId) this.expireOne(id);
+    for (const a of this.store.approvals(runId))
+      if (a.status === "pending") {
+        a.status = "expired";
+        this.store.saveApproval(a);
+      }
   }
   cancel(id: string, reason = "用户取消") {
-    const task = this.store.task(id);
-    if (!task) throw new AppError(404, "任务不存在");
-    if (!["queued", "running", "awaiting_approval"].includes(task.status))
+    const t = this.store.task(id);
+    if (!t) throw new AppError(404, "任务不存在");
+    if (!["queued", "running", "awaiting_approval"].includes(t.status))
       throw new AppError(409, "任务已结束");
-    if (this.active?.task.id === id) {
-      const a = this.active;
-      a.task.status = a.run.status = "cancelled";
-      a.run.error = reason;
-      this.expire(a.run.id);
-      this.store.saveRun(a.run);
-      this.store.saveTask(a.task);
-      a.abort.abort(new Error(reason));
-    } else {
-      task.status = "cancelled";
-      this.store.saveTask(task);
-    }
+    this.store.transaction(() => {
+      t.status = "cancelled";
+      this.store.saveTask(t);
+      const r = t.currentRunId ? this.store.run(t.currentRunId) : undefined;
+      if (r && !r.endedAt) {
+        r.status = "cancelled";
+        r.error = reason;
+        this.expire(r.id);
+        this.store.saveRun(r);
+      }
+    });
   }
   retry(id: string) {
     if (this.closed) throw new AppError(503, "服务正在停止");
@@ -288,30 +348,76 @@ export class TaskService {
     if (!d) throw new AppError(404, "任务不存在");
     if (
       !["failed", "cancelled", "interrupted"].includes(d.task.status) ||
-      this.active?.task.id === id
+      d.runs.some((r) => !r.endedAt)
     )
-      throw new AppError(409, "任务尚不能重试");
+      throw new AppError(409, "原执行尚未释放；请稍后重试");
     if (
       d.runs.length >= LIMITS.runsPerTask ||
       this.store.countActive() >= LIMITS.queue
     )
       throw new AppError(429, "已达到队列或重试上限");
-    d.task.status = "queued";
-    this.store.saveTask(d.task);
-    this.kick();
+    const event = this.store.transaction(() => {
+      d.task.status = "queued";
+      this.store.saveTask(d.task);
+      return this.store.deliver(id);
+    });
+    this.available(event);
     return { taskId: id };
   }
-  async close() {
-    this.closed = true;
-    if (this.active) {
-      const a = this.active;
-      if (a.task.status !== "cancelled") {
-        a.task.status = a.run.status = "interrupted";
-        a.run.error = "服务停止，原 ACP 连接已失效";
+  sweep(time = Date.now()) {
+    if (this.closed) return;
+    for (const r of this.store.unfinished()) {
+      const lease = this.store.lease(r.id);
+      let reason: string | undefined;
+      if (!lease || lease.deadline <= time)
+        reason = "订阅连接器失联，原领取已失效；请显式重试";
+      else if (time - Date.parse(r.createdAt) >= LIMITS.runMs) {
+        if (r.status !== "cancelled") this.cancel(r.taskId, "执行超时");
+        continue;
+      } else if (
+        this.store
+          .approvals(r.id)
+          .some(
+            (a) =>
+              a.status === "pending" &&
+              time - Date.parse(a.createdAt) >= LIMITS.approvalMs,
+          )
+      ) {
+        if (r.status !== "cancelled") this.cancel(r.taskId, "审批超时");
+        continue;
       }
-      this.expire(a.run.id);
-      a.abort.abort(new Error("服务停止"));
+      if (reason)
+        this.store.transaction(() => {
+          if (r.status !== "cancelled") r.status = "interrupted";
+          r.error = reason;
+          r.endedAt = now();
+          this.expire(r.id);
+          const t = this.store.task(r.taskId)!;
+          t.status = r.status;
+          this.store.saveRun(r);
+          this.store.saveTask(t);
+        });
     }
-    await this.drainPromise;
+  }
+  async close() {
+    if (this.closed) return;
+    this.closed = true;
+    clearInterval(this.timer);
+    this.events.emit("close");
+    this.store.transaction(() => {
+      const unfinished = this.store.unfinished();
+      if (unfinished.length)
+        this.store.setQuarantine(Date.now() + LIMITS.leaseMs);
+      for (const r of unfinished) {
+        if (r.status !== "cancelled") r.status = "interrupted";
+        r.error = r.error ?? "服务停止，原领取已失效";
+        r.endedAt = now();
+        this.expire(r.id);
+        this.store.saveRun(r);
+        const t = this.store.task(r.taskId)!;
+        t.status = r.status;
+        this.store.saveTask(t);
+      }
+    });
   }
 }

@@ -19,6 +19,7 @@ export type AdapterConfig = {
   workspace: string;
   env: NodeJS.ProcessEnv;
   authMethod?: "api-key";
+  mode?: "fake" | "codex";
 };
 export type RunHooks = {
   session(id: string): void;
@@ -32,6 +33,12 @@ export type RunHooks = {
 };
 export class CodexAdapter {
   constructor(private config: AdapterConfig) {}
+  get workspace() {
+    return this.config.workspace;
+  }
+  get mode() {
+    return this.config.mode ?? "codex";
+  }
   async execute(
     text: string,
     signal: AbortSignal,
@@ -113,7 +120,7 @@ export class CodexAdapter {
             fs: { readTextFile: false, writeTextFile: false },
             terminal: false,
           },
-          clientInfo: { name: "task-platform-mvp", version: "0.1.0" },
+          clientInfo: { name: "task-platform-mvp", version: "0.2.0" },
         }),
       );
       if (init.protocolVersion !== PROTOCOL_VERSION)

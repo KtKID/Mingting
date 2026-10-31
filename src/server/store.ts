@@ -13,6 +13,8 @@ import {
   runSchema,
   approvalSchema,
   eventSchema,
+  deliveryEventSchema,
+  type DeliveryEvent,
 } from "../shared/protocol.js";
 import type { SessionNotification } from "@agentclientprotocol/sdk";
 const now = () => new Date().toISOString();
@@ -30,7 +32,10 @@ export class Store {
       CREATE TABLE IF NOT EXISTS approvals (id TEXT PRIMARY KEY, run_id TEXT REFERENCES runs(id), data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT REFERENCES runs(id), data TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS runs_task ON runs(task_id); CREATE INDEX IF NOT EXISTS approvals_run ON approvals(run_id);
-      CREATE INDEX IF NOT EXISTS events_run ON events(run_id);`);
+      CREATE INDEX IF NOT EXISTS events_run ON events(run_id);
+      CREATE TABLE IF NOT EXISTS runtime_metadata (key TEXT PRIMARY KEY,value INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS deliveries (id INTEGER PRIMARY KEY AUTOINCREMENT,task_id TEXT REFERENCES tasks(id),created_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS leases (run_id TEXT PRIMARY KEY REFERENCES runs(id),owner_id TEXT NOT NULL,claim_id TEXT NOT NULL,deadline INTEGER NOT NULL,seq INTEGER NOT NULL DEFAULT 0);`);
   }
   transaction<T>(fn: () => T): T {
     this.db.exec("BEGIN IMMEDIATE");
@@ -142,21 +147,110 @@ export class Store {
       : [];
     return { task, runs, approvals, events };
   }
+  run(id: string): Run | undefined {
+    const row = this.db.prepare("SELECT data FROM runs WHERE id=?").get(id);
+    return row ? runSchema.parse(JSON.parse(row.data as string)) : undefined;
+  }
+  unfinished(): Run[] {
+    return this.db
+      .prepare(
+        "SELECT data FROM runs WHERE json_extract(data,'$.endedAt') IS NULL",
+      )
+      .all()
+      .map((r) => runSchema.parse(JSON.parse(r.data as string)));
+  }
+  queuedTasks(): Task[] {
+    return this.db
+      .prepare(
+        "SELECT data FROM tasks WHERE json_extract(data,'$.status')='queued' ORDER BY rowid",
+      )
+      .all()
+      .map((r) => taskSchema.parse(JSON.parse(r.data as string)));
+  }
+  deliver(taskId: string): DeliveryEvent {
+    const createdAt = now();
+    const result = this.db
+      .prepare("INSERT INTO deliveries(task_id,created_at) VALUES(?,?)")
+      .run(taskId, createdAt);
+    return {
+      id: Number(result.lastInsertRowid),
+      type: "task.available",
+      taskId,
+      createdAt,
+    };
+  }
+  deliveries(after: number): DeliveryEvent[] {
+    return this.db
+      .prepare(
+        "SELECT id,task_id,created_at FROM deliveries WHERE id>? ORDER BY id LIMIT 200",
+      )
+      .all(after)
+      .map((r) =>
+        deliveryEventSchema.parse({
+          id: Number(r.id),
+          type: "task.available",
+          taskId: r.task_id,
+          createdAt: r.created_at,
+        }),
+      );
+  }
+  latestDelivery(): number {
+    return Number(
+      this.db.prepare("SELECT COALESCE(MAX(id),0) AS n FROM deliveries").get()!
+        .n,
+    );
+  }
+  lease(
+    runId: string,
+  ):
+    | { ownerId: string; claimId: string; deadline: number; seq: number }
+    | undefined {
+    const r = this.db.prepare("SELECT * FROM leases WHERE run_id=?").get(runId);
+    return r
+      ? {
+          ownerId: String(r.owner_id),
+          claimId: String(r.claim_id),
+          deadline: Number(r.deadline),
+          seq: Number(r.seq),
+        }
+      : undefined;
+  }
+  saveLease(
+    runId: string,
+    ownerId: string,
+    claimId: string,
+    deadline: number,
+    seq = 0,
+  ) {
+    this.db
+      .prepare(
+        "INSERT INTO leases VALUES(?,?,?,?,?) ON CONFLICT(run_id) DO UPDATE SET deadline=excluded.deadline,seq=excluded.seq",
+      )
+      .run(runId, ownerId, claimId, deadline, seq);
+  }
+  quarantineUntil(): number {
+    return Number(
+      this.db
+        .prepare("SELECT value FROM runtime_metadata WHERE key='quarantine'")
+        .get()?.value ?? 0,
+    );
+  }
+  setQuarantine(value: number) {
+    this.db
+      .prepare(
+        "INSERT INTO runtime_metadata VALUES('quarantine',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+      )
+      .run(value);
+  }
   recover() {
     this.transaction(() => {
-      const rows = this.db
-        .prepare(
-          "SELECT data FROM runs WHERE json_extract(data,'$.status') IN ('running','awaiting_approval')",
-        )
-        .all();
-      for (const row of rows) {
-        const r = runSchema.parse(JSON.parse(row.data as string));
-        r.status = "interrupted";
+      for (const r of this.unfinished()) {
+        if (r.status !== "cancelled") r.status = "interrupted";
         r.endedAt = now();
-        r.error = "服务重启，原 ACP 连接已丢失；请显式重试。";
+        r.error = "服务重启，原领取已失效；请显式重试。";
         this.saveRun(r);
         const t = this.task(r.taskId)!;
-        t.status = "interrupted";
+        t.status = r.status;
         this.saveTask(t);
       }
       for (const row of this.db
@@ -168,6 +262,8 @@ export class Store {
         a.status = "expired";
         this.saveApproval(a);
       }
+      // Migrates queued tasks from the earlier direct-execution MVP and reannounces offline work.
+      for (const t of this.queuedTasks()) this.deliver(t.id);
     });
   }
   close() {

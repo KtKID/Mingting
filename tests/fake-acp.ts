@@ -34,6 +34,22 @@ const connection = agent({ name: "fake-codex-acp" })
       .map((p) => (p.type === "text" ? p.text : ""))
       .join("");
     if (prompt.includes("[process-exit]")) process.exit(1);
+    if (prompt.includes("[stubborn]")) {
+      process.stdin.removeAllListeners("end");
+      process.on("SIGTERM", () => {});
+      setInterval(() => {}, 1000);
+      await ctx.client.notify(methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: {
+            type: "text",
+            text: "[FAKE ACP] stubborn prompt started; no model or command",
+          },
+        },
+      });
+      return await new Promise<never>(() => {});
+    }
     const permissionSession = prompt.includes("[bad-session]")
       ? "another-session"
       : sessionId;

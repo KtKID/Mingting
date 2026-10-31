@@ -1,6 +1,6 @@
 {
   "name": "task-platform-mvp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local MCP task publishing and Codex ACP approval platform",
   "main": "index.js",
   "directories": {
@@ -15,7 +15,8 @@
     "test:ui": "playwright test",
     "check": "npm test && npm run build",
     "publish": "tsx scripts/publish-task.ts",
-    "format": "prettier --write src tests scripts *.ts *.json *.md docs/*.md"
+    "format": "prettier --write src tests scripts *.ts *.json *.md docs/*.md",
+    "connector": "node --env-file-if-exists=.env --import tsx src/connector/main.ts"
   },
   "keywords": [],
   "author": "",
@@ -25,6 +26,7 @@
     "@agentclientprotocol/codex-acp": "^2.5.0",
     "@agentclientprotocol/sdk": "^2.2.0",
     "@modelcontextprotocol/sdk": "^1.32.2",
+    "ajv": "^8.20.0",
     "express": "^5.3.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",

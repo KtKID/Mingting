@@ -8,20 +8,28 @@ import {
   LIMITS,
   publishTaskSchema,
   decisionSchema,
+  claimTaskSchema,
+  ownerSchema,
+  reportSchema,
+  permissionSubmissionSchema,
+  type DeliveryEvent,
 } from "../shared/protocol.js";
 import { Store } from "./store.js";
 import { TaskService, AppError } from "./service.js";
-import { CodexAdapter } from "./codex-adapter.js";
 
 type Config = {
   dbPath: string;
   workspace: string;
-  adapter: CodexAdapter;
+
   mode?: "fake" | "codex";
 };
 export function createPlatform(config: Config) {
   const store = new Store(config.dbPath);
-  const service = new TaskService(store, config.adapter);
+  const service = new TaskService(
+    store,
+    config.workspace,
+    config.mode ?? "codex",
+  );
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", false);
@@ -141,8 +149,102 @@ export function createPlatform(config: Config) {
     service.decide(req.params.id, decisionSchema.parse(req.body));
     res.json({ ok: true });
   });
+  // Connector transport is separate from MCP and browser sessions; trusted local CLI only.
+  app.use("/connector", (req, res, next) => {
+    if (
+      req.headers.origin !== undefined ||
+      req.headers["sec-fetch-site"] !== undefined
+    )
+      return res.status(403).json({ error: "订阅接口仅供本机连接器使用" });
+    next();
+  });
+  let subscriberCount = 0;
+  app.get("/connector/events", (req, res) => {
+    const raw = req.headers["last-event-id"] ?? req.query.after ?? "0";
+    const after = Number(raw);
+    if (
+      typeof raw !== "string" ||
+      !/^\d+$/.test(raw) ||
+      !Number.isSafeInteger(after) ||
+      after > store.latestDelivery()
+    )
+      throw new AppError(400, "事件游标无效");
+    if (subscriberCount >= LIMITS.subscribers)
+      throw new AppError(429, "订阅连接数量超限");
+    subscriberCount++;
+    let cursor = after,
+      closed = false;
+    res.status(200).set({
+      "Content-Type": "text/event-stream",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    res.setTimeout(0);
+    res.flushHeaders();
+    const send = (event: DeliveryEvent) => {
+      if (closed || event.id <= cursor) return;
+      cursor = event.id;
+      const writable = res.write(
+        `id: ${event.id}\nevent: task.available\ndata: ${JSON.stringify(event)}\n\n`,
+      );
+      if (!writable) res.end();
+    };
+    const stop = () => res.end();
+    const heartbeat = setInterval(() => {
+      if (!res.write(": heartbeat\n\n")) res.end();
+    }, LIMITS.subscriptionHeartbeatMs);
+    service.events.on("available", send);
+    service.events.on("close", stop);
+    res.once("close", () => {
+      closed = true;
+      subscriberCount--;
+      clearInterval(heartbeat);
+      service.events.off("available", send);
+      service.events.off("close", stop);
+    });
+    // No await between attaching and replay: a publication cannot fall into a replay/live gap.
+    let page;
+    do {
+      page = store.deliveries(cursor);
+      for (const event of page) {
+        send(event);
+        if (res.writableEnded) break;
+      }
+    } while (page.length === 200 && !res.writableEnded);
+    if (!res.writableEnded) res.write(": subscribed\n\n");
+  });
+  app.post("/connector/claim", (req, res) => {
+    const body = claimTaskSchema.parse(req.body);
+    const { taskId, ...owner } = body;
+    res.json(service.claim(taskId, owner));
+  });
+  app.post("/connector/runs/:id/heartbeat", (req, res) =>
+    res.json(service.heartbeat(req.params.id, ownerSchema.parse(req.body))),
+  );
+  app.post("/connector/runs/:id/report", (req, res) => {
+    const body = reportSchema.parse(req.body);
+    res.json(service.report(req.params.id, body, body.seq, body.update));
+  });
+  app.post("/connector/runs/:id/permissions", (req, res) => {
+    const body = permissionSubmissionSchema.parse(req.body);
+    res.json(
+      service.permission(req.params.id, body, body.requestId, body.request),
+    );
+  });
+  app.post("/connector/runs/:id/permissions/:approvalId/result", (req, res) =>
+    res.json(
+      service.permissionResult(
+        req.params.id,
+        ownerSchema.parse(req.body),
+        req.params.approvalId,
+      ),
+    ),
+  );
+  app.use("/connector", (_req, res) =>
+    res.status(404).json({ error: "连接器接口不存在" }),
+  );
   app.post("/mcp", async (req, res) => {
-    const mcp = new McpServer({ name: "task-platform-mvp", version: "0.1.0" });
+    const mcp = new McpServer({ name: "task-platform-mvp", version: "0.2.0" });
     mcp.registerTool(
       "publish_task",
       {

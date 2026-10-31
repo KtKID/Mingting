@@ -2,6 +2,7 @@ import { z } from "zod";
 import type {
   InitializeResponse,
   RequestPermissionRequest,
+  RequestPermissionResponse,
   SessionNotification,
 } from "@agentclientprotocol/sdk";
 
@@ -21,7 +22,16 @@ export const LIMITS = Object.freeze({
   killMs: 2000,
   sessions: 64,
   sessionMs: 12 * 3600000,
-  httpConcurrent: 16,
+  httpConcurrent: 24,
+  subscribers: 8,
+  subscriptionHeartbeatMs: 10000,
+  reconnectMs: 500,
+  leaseMs: 8000,
+  heartbeatMs: 1000,
+  connectorHttpMs: 2500,
+  approvalPollMs: 250,
+  sweepMs: 250,
+  pendingReports: 256,
 });
 export const publishTaskSchema = z
   .object({
@@ -57,6 +67,7 @@ export const runSchema = z.object({
   error: z.string().nullable(),
   stopReason: z.string().nullable(),
   discovery: z.custom<InitializeResponse>().nullable(),
+  ownerId: z.string().nullable().default(null),
 });
 // ACP payloads are validated by the official SDK at the transport boundary. No handwritten ACP wire schema.
 export const approvalSchema = z.object({
@@ -102,3 +113,76 @@ export type Approval = z.infer<typeof approvalSchema>;
 export type TaskDetail = z.infer<typeof detailSchema>;
 export type Decision = z.infer<typeof decisionSchema>;
 export type Bootstrap = z.infer<typeof bootstrapSchema>;
+
+// Task subscription is an application transport, distinct from ACP session/update and MCP.
+export const deliveryEventSchema = z
+  .object({
+    id: z.number().int().positive(),
+    type: z.literal("task.available"),
+    taskId: z.string().uuid(),
+    createdAt: z.string(),
+  })
+  .strict();
+export const claimTaskSchema = z
+  .object({
+    taskId: z.string().uuid(),
+    ownerId: z.string().uuid(),
+    claimId: z.string().uuid(),
+  })
+  .strict();
+export const ownerSchema = claimTaskSchema.omit({ taskId: true });
+export const claimResultSchema = z.object({
+  task: taskSchema,
+  run: runSchema,
+  ownerId: z.string().uuid(),
+  claimId: z.string().uuid(),
+  leaseMs: z.number(),
+  workspace: z.string(),
+  mode: z.enum(["fake", "codex"]),
+});
+export const connectorUpdateSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("session"), sessionId: z.string().min(1) }),
+  z.object({
+    type: z.literal("discovery"),
+    discovery: z.custom<InitializeResponse>(),
+  }),
+  z.object({
+    type: z.literal("notification"),
+    notification: z.custom<SessionNotification>(),
+  }),
+  z.object({
+    type: z.literal("finished"),
+    status: z.enum(["succeeded", "failed", "cancelled", "interrupted"]),
+    stopReason: z.string().nullable(),
+    error: z.string().max(2000).nullable(),
+  }),
+]);
+export const reportSchema = ownerSchema
+  .extend({ seq: z.number().int().positive(), update: connectorUpdateSchema })
+  .strict();
+export const permissionSubmissionSchema = ownerSchema
+  .extend({
+    requestId: z.union([z.string(), z.number(), z.null()]),
+    request: z.custom<RequestPermissionRequest>(),
+  })
+  .strict();
+export type DeliveryEvent = z.infer<typeof deliveryEventSchema>;
+export type Claim = z.infer<typeof claimResultSchema>;
+export type Owner = z.infer<typeof ownerSchema>;
+export type ConnectorUpdate = z.infer<typeof connectorUpdateSchema>;
+
+export const heartbeatResultSchema = z.object({
+  status: taskStatusSchema,
+  cancelRequested: z.boolean(),
+  leaseMs: z.number(),
+});
+export const approvalCreatedSchema = z.object({
+  approvalId: z.string().uuid(),
+});
+export const permissionResultSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("pending") }),
+  z.object({
+    status: z.literal("resolved"),
+    response: z.custom<RequestPermissionResponse>(),
+  }),
+]);

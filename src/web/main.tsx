@@ -640,10 +640,14 @@ function App() {
               ) && (
                 <button
                   className="primary full"
-                  disabled={busy || !online}
+                  disabled={
+                    busy || !online || detail.runs.some((r) => !r.endedAt)
+                  }
                   onClick={() => void act("/tasks/" + selected + "/retry", {})}
                 >
-                  创建新执行并重试
+                  {detail.runs.some((r) => !r.endedAt)
+                    ? "正在停止原执行…"
+                    : "创建新执行并重试"}
                 </button>
               )}
               <details className="technical">

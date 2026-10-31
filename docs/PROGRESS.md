@@ -1,7 +1,5 @@
-完成状态（2026-10-31 UTC，供父线程读取）
+0.2 订阅实现完成状态（2026-10-31 UTC）
 
-独立项目：/workspace/task-platform-mvp。未访问、修改或恢复 MadeMe。服务端、唯一 MCP 发布工具、Codex ACP 适配层、SQLite 持久化队列、React TS 任务列表和网页审批均已完成。
+已实现：持久 task.available 通知、HTTP SSE 历史/实时订阅、Last-Event-ID 续传、原子领取和 owner/claim fencing、独立 Codex 连接器、心跳租约、顺序幂等回传、HTTP ACP 审批桥接、取消/超时/重启恢复。原直接执行队列已移除，MCP 仍仅 publish_task。
 
-最终验证：11 个服务端/HTTP MCP/ACP 子进程集成用例通过；4 个 Chromium 桌面浅色及手机暗色交互用例通过；TypeScript/Vite 构建通过。真实 codex-acp 2.5.0 在隔离空 HOME/CODEX_HOME 完成 initialize 握手，返回协议1和 api-key 认证方法；未发 authenticate/session/new/prompt，没有现存凭据读取或模型调用。中文使用说明与完整事实见 README.md 和 docs/TEST-REPORT.md。
-
-已知缺口：真实登录/模型/工具审批、用户 Mac 原生运行留用户验证。仅 loopback 本地服务，无公网URL或隧道。浏览器下载403已由环境现有Chromium完成独立QA，不再阻塞。Git提交和Library源码ZIP交付信息由最终回复提供。
+21 个服务端/HTTP订阅/ACP子进程测试及 TypeScript/Vite 构建通过；4 个桌面/手机浏览器交互用例全部通过，最终结果见 TEST-REPORT.md。未真实登录或调用模型；未改 Mac、MadeMe 或既有 Site。源码包替换和提交信息由最终回复提供。
