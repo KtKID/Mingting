@@ -101,7 +101,12 @@ test("real HTTP MCP publish → SQLite → ACP child permission → browser API 
     );
     assert.deepEqual(
       (await client.listTools()).tools.map((t) => t.name),
-      ["publish_task", "list_harnesses"],
+      [
+        "publish_task",
+        "list_harnesses",
+        "wait_for_approval",
+        "submit_approval_decision",
+      ],
     );
     assert.equal(
       (await client.callTool({ name: "approve_task", arguments: {} })).isError,

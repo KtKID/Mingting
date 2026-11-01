@@ -4,6 +4,8 @@ The local runtime now supports named Codex, Grok and ZCode SSE connectors. `publ
 
 # Mingting
 
+ZCode now uses a bidirectional bridge from ACP v1 to its native `app-server --stdio` protocol. Real Codex-published tasks verified subscriber approval after a ten-second user window, a user rejection during that window, and user-first rejection. The current ZCode profile uses project-local BigModel OAuth Coding Plan credentials and read-only tools. See the [verification record](reports/zcode-approval-channel/README.md).
+
 [简体中文](README.md)
 
 A shared workspace for humans and agents.
@@ -12,21 +14,21 @@ MVP 0.2 is a local task platform. MCP exposes one publishing tool. A separate Co
 
 ## Features and scope
 
-| Capability                 | Current implementation                                                                                                                               |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Task publishing            | The only MCP tool is `publish_task`, with `title`, `description` and `publisherName`. The web form uses the same task service.                       |
-| Task list                  | A React/TypeScript list shows title, description, publisher, status, result and approvals. It supports desktop/mobile layouts and light/dark themes. |
-| Subscription and ownership | Independent HTTP SSE subscriptions, persisted SQLite events, replay after disconnect, atomic claims and run ownership.                               |
-| Execution                  | One local Codex connector uses the open-source Codex ACP adapter to communicate with Codex App Server.                                               |
-| Human approvals            | Original tool context and permission options; allow/reject, cancellation, timeouts and stale-request rejection. No automatic approval.               |
-| Recovery and reporting     | Heartbeat leases, ordered/idempotent status reports, process-failure recovery and explicit retry. Event receipt is not execution success.            |
-| Persistence                | SQLite stores tasks, runs, approvals and bounded ACP session history. Task-availability events support replay.                                       |
+| Capability                 | Current implementation                                                                                                                                                 |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Task publishing            | MCP `publish_task` accepts task details, optional execution target and review targets. The web form uses the same task service.                                        |
+| Task list                  | A React/TypeScript list shows title, description, publisher, status, result and approvals. It supports desktop/mobile layouts and light/dark themes.                   |
+| Subscription and ownership | Independent HTTP SSE subscriptions, persisted SQLite events, replay after disconnect, atomic claims and run ownership.                                                 |
+| Execution                  | One local Codex connector uses the open-source Codex ACP adapter to communicate with Codex App Server.                                                                 |
+| Human approvals            | Automatic prompt with user and subscriber choices. User decisions take priority; a subscriber decision starts a 10-second user window. Third-party review is disabled. |
+| Recovery and reporting     | Heartbeat leases, ordered/idempotent status reports, process-failure recovery and explicit retry. Event receipt is not execution success.                              |
+| Persistence                | SQLite stores tasks, runs, approvals and bounded ACP session history. Task-availability events support replay.                                                         |
 
 This MVP targets one trusted local user, one platform instance and one Codex executor. It does not include multiple Harnesses, remote workers, multi-user authentication/authorization, task DAGs, a chat workspace, model routing, automatic Git merges or a public backend. The web interface is currently Chinese; the language switch above applies to the documentation.
 
 The existing private Site is a browser-local UI demonstration. It does not run this Node backend and its URL is not an MCP endpoint.
 
-Task subscriptions use Mingting's application HTTP protocol. Codex execution uses standard ACP v1. Browser polling refreshes the interface; it is separate from the connector's real task-event subscription.
+Task subscriptions use Mingting's application HTTP protocol. Codex execution uses standard ACP v1. Same-origin SSE updates the browser; publishers receive approval snapshots through their own task-scoped subscription.
 
 ## Requirements and a safe demo
 
@@ -153,13 +155,13 @@ Input schema; all strings are trimmed before application validation:
 }
 ```
 
-Successful `structuredContent` is `{"taskId":"<UUID>"}`. Publishing does not require an open web page or an online connector. The repository includes an official SDK client example:
+Successful `structuredContent` contains `taskId` and, when subscriber review is enabled, the private `approvalSubscription`. Publishing does not require an open web page or an online connector. The repository includes an official SDK client example:
 
 ```bash
 npm run publish -- "Improve installation instructions" "Document installation and startup" "Lin"
 ```
 
-MCP does not expose subscription, approval, arbitrary-command or workspace-selection tools. Publisher names are display text, not authenticated identities. Repeating publication creates another task; publishing itself is not idempotent.
+MCP exposes `publish_task`, `list_harnesses`, `wait_for_approval` and `submit_approval_decision`. Approval subscription uses a private task-scoped token. Publisher names are display text. Repeating publication creates another task; publishing itself is not idempotent.
 
 ## Task subscription, claims and reports
 
@@ -214,7 +216,7 @@ Application schemas and derived types live in `src/shared/protocol.ts`. ACP payl
 
 A failed/offline connector must be started again to claim further tasks. The lease prevents an abandoned run from owning the slot forever; it cannot execute work without an online connector.
 
-Decisions use the original option ID for the same ACP request. Repeated, stale or wrong-session approvals are rejected. Closing the browser does not approve anything. Execution is fixed to `workspace-write`, `on-request` and a human reviewer. Only permission requests actually emitted by Codex appear for approval; ordinary sandbox-allowed work is not guaranteed to ask per operation.
+Decisions use the original option ID for the same ACP request. Repeated, stale or wrong-session approvals are rejected. A subscriber decision starts a server-owned 10-second window; a user choice during the window takes immediate priority. At the deadline the subscriber choice is applied. Refreshing or closing the page preserves the deadline. Execution is fixed to `workspace-write`, `on-request` and a human reviewer. Only permission requests actually emitted by Codex appear for approval; ordinary sandbox-allowed work is not guaranteed to ask per operation.
 
 ## Local security and limits
 
@@ -242,3 +244,7 @@ MVP 0.2 passed 21 backend/subscription integration tests, four desktop/mobile br
 Source deliverables exclude `node_modules`, `.env`, credentials, runtime databases and browser/task state. They do not include another project or the private Site preview source.
 
 Upstream projects: [Codex ACP](https://github.com/agentclientprotocol/codex-acp), [ACP TypeScript SDK](https://github.com/agentclientprotocol/typescript-sdk), [MCP TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk).
+
+## Approval subscription
+
+Publication supports `approvalTargets: ["subscriber"]` (default), or `[]` for user-only review. The publisher receives a private `approvalSubscription`; use `wait_for_approval` and `submit_approval_decision` or the dedicated HTTP SSE stream. The platform shows an automatic approval dialog. User decisions during the pending window take immediate priority; a subscriber decision starts a server-owned 10-second window, after which it becomes final. Third-party review is visibly disabled. See [approval rules and APIs](docs/APPROVALS.md).

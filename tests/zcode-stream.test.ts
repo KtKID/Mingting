@@ -4,6 +4,58 @@ import { translateZcodeLine } from "../src/server/zcode-stream.js";
 import { applyProgress } from "../src/server/progress.js";
 import { LIMITS, runSchema } from "../src/shared/protocol.js";
 
+test("N6 native permission denial closes the waiting tool; allow waits for execution", () => {
+  const run = runSchema.parse({
+    id: "r",
+    taskId: "t",
+    status: "running",
+    sessionId: "s",
+    createdAt: "now",
+    endedAt: null,
+    output: "",
+    error: null,
+    stopReason: null,
+    discovery: null,
+  });
+  const scheduled = translateZcodeLine(
+    {
+      type: "tool.updated",
+      payload: { kind: "scheduled", toolCallId: "read", toolName: "Read" },
+    },
+    "s",
+  ).update;
+  assert.ok(scheduled);
+  applyProgress(run, scheduled);
+  assert.deepEqual(
+    translateZcodeLine(
+      {
+        type: "permission.resolved",
+        payload: { toolCallId: "read", decision: "allow" },
+      },
+      "s",
+    ),
+    {},
+  );
+  assert.equal(run.tools[0]?.status, "pending");
+  const denied = translateZcodeLine(
+    {
+      type: "permission.resolved",
+      payload: {
+        toolCallId: "read",
+        decision: "deny",
+        reason: "用户拒绝本次读取",
+      },
+    },
+    "s",
+  ).update;
+  assert.ok(denied);
+  applyProgress(run, denied);
+  applyProgress(run, denied);
+  assert.equal(run.tools.length, 1);
+  assert.equal(run.tools[0]?.status, "failed");
+  assert.equal(run.tools[0]?.output, "用户拒绝本次读取");
+});
+
 test("A7 native ZCode batch events stay separate from per-tool updates; malformed known events fail", () => {
   assert.deepEqual(
     translateZcodeLine(

@@ -103,7 +103,9 @@ export function runtime() {
         ZCODE_HOME: state,
         ZCODE_DATA_BASE_DIR: root,
         ZCODE_STORAGE_DIR: state,
-        ZCODE_SESSION_DB_PATH: projectPath(resolve(state, "cli/db/db.sqlite")),
+        ZCODE_SESSION_DB_PATH: projectPath(
+          nativeEnv.ZCODE_SESSION_DB_PATH ?? resolve(state, "cli/db/db.sqlite"),
+        ),
         ZCODE_CREDENTIAL_SECRET:
           process.env.ZCODE_CREDENTIAL_SECRET ??
           `zcode-credential-fallback:${process.platform}:${homedir()}:${userInfo().username}`,

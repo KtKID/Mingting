@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID, randomBytes, createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import type {
   RequestPermissionRequest,
@@ -17,10 +17,14 @@ import {
   type ConnectorUpdate,
   type DeliveryEvent,
   type HarnessSubscription,
+  type Approval,
+  type SubscriberDecision,
+  type ApprovalSubscription,
 } from "../shared/protocol.js";
 import { Store } from "./store.js";
 import { validateAcp } from "./acp-validation.js";
 import { applyProgress } from "./progress.js";
+import { approvalPrompt } from "../shared/approval.js";
 export class AppError extends Error {
   constructor(
     public status: number,
@@ -86,14 +90,104 @@ export class TaskService {
   publish(raw: PublishTask) {
     if (this.closed) throw new AppError(503, "服务正在停止");
     const input = publishTaskSchema.parse(raw);
+    if (input.approvalTargets?.includes("third_party"))
+      throw new AppError(400, "第三方审批正在开发中");
     if (this.store.countActive() >= LIMITS.queue)
       throw new AppError(429, "队列已满");
+    const subscriptionToken = randomBytes(32).toString("hex");
     const result = this.store.transaction(() => {
       const task = this.store.publish(input);
+      if (task.approvalTargets.includes("subscriber"))
+        this.store.saveApprovalSubscriber(
+          task.id,
+          this.tokenHash(subscriptionToken),
+        );
       return { task, event: this.store.deliver(task.id) };
     });
     this.available(result.event);
-    return { taskId: result.task.id };
+    return {
+      taskId: result.task.id,
+      ...(result.task.approvalTargets.includes("subscriber")
+        ? {
+            approvalSubscription: { taskId: result.task.id, subscriptionToken },
+          }
+        : {}),
+    };
+  }
+  private tokenHash(token: string) {
+    return createHash("sha256").update(token).digest("hex");
+  }
+  private requireSubscriber(subscription: ApprovalSubscription) {
+    if (
+      !this.store.approvalSubscriber(
+        subscription.taskId,
+        this.tokenHash(subscription.subscriptionToken),
+      )
+    )
+      throw new AppError(403, "审批订阅凭据无效");
+    const task = this.store.task(subscription.taskId);
+    if (!task?.approvalTargets.includes("subscriber"))
+      throw new AppError(403, "任务未选择订阅者审批");
+    return task;
+  }
+  approvalSnapshot(subscription: ApprovalSubscription) {
+    const task = this.requireSubscriber(subscription);
+    return {
+      type: "approval.snapshot" as const,
+      taskId: task.id,
+      taskStatus: task.status,
+      approvals: task.currentRunId
+        ? this.store
+            .approvals(task.currentRunId)
+            .filter((approval) => approval.status === "pending")
+        : [],
+    };
+  }
+  private approvalWaiters = 0;
+  async waitForApproval(
+    subscription: ApprovalSubscription,
+    waitMs: number,
+    signal?: AbortSignal,
+  ) {
+    this.requireSubscriber(subscription);
+    if (this.closed) throw new AppError(503, "服务正在停止");
+    if (this.approvalWaiters >= LIMITS.subscribers)
+      throw new AppError(429, "审批等待数量超限");
+    this.approvalWaiters++;
+    let timer: NodeJS.Timeout | undefined;
+    let changed: () => void = () => {};
+    let stop: () => void = () => {};
+    try {
+      await new Promise<void>((resolve, reject) => {
+        stop = () => reject(new AppError(503, "审批等待已结束"));
+        changed = () => {
+          const snapshot = this.approvalSnapshot(subscription);
+          if (
+            snapshot.approvals.some(
+              (a) =>
+                !a.reviewerDecisions.some((d) => d.target === "subscriber"),
+            ) ||
+            !["queued", "running", "awaiting_approval"].includes(
+              snapshot.taskStatus,
+            )
+          )
+            resolve();
+        };
+        this.events.on("changed", changed);
+        this.events.once("close", stop);
+        signal?.addEventListener("abort", stop, { once: true });
+        timer = setTimeout(resolve, waitMs);
+        if (signal?.aborted) stop();
+        else changed();
+      });
+      return this.approvalSnapshot(subscription);
+    } finally {
+      this.approvalWaiters--;
+      clearTimeout(timer);
+      this.events.off("changed", changed);
+      this.events.off("close", stop);
+      signal?.removeEventListener("abort", stop);
+    }
   }
   claim(taskId: string, owner: Owner): Claim {
     if (this.closed) throw new AppError(503, "服务正在停止");
@@ -283,16 +377,24 @@ export class TaskService {
       this.cancel(r.taskId, "审批请求数量超限");
       throw new AppError(410, "审批请求数量超限");
     }
-    const a = {
+    const a: Approval = {
       id: randomUUID(),
       taskId: r.taskId,
       runId,
       sessionId: request.sessionId,
       requestId,
       request,
+      prompt: approvalPrompt(
+        request,
+        r.tools.find((tool) => tool.id === request.toolCall.toolCallId),
+      ),
       status: "pending" as const,
       optionId: null,
       createdAt: now(),
+      reviewerDecisions: [],
+      userDecision: null,
+      fallbackAt: null,
+      resolvedBy: null,
     };
     r.status = "awaiting_approval";
     const t = this.store.task(r.taskId)!;
@@ -305,6 +407,7 @@ export class TaskService {
     return { approvalId: a.id };
   }
   permissionResult(runId: string, owner: Owner, approvalId: string) {
+    this.sweep();
     this.owned(runId, owner);
     const a = this.store.approval(approvalId);
     if (!a || a.runId !== runId) throw new AppError(404, "审批不存在");
@@ -322,7 +425,7 @@ export class TaskService {
             response: { outcome: { outcome: "cancelled" as const } },
           };
   }
-  decide(id: string, decision: Decision) {
+  private pendingApproval(id: string, decision: Decision) {
     const a = this.store.approval(id);
     const r = a ? this.store.run(a.runId) : undefined;
     const lease = r ? this.store.lease(r.id) : undefined;
@@ -342,8 +445,49 @@ export class TaskService {
       throw new AppError(409, "审批已失效或不属于当前执行");
     if (!a.request.options.some((o) => o.optionId === decision.optionId))
       throw new AppError(409, "审批选项无效");
+    return { approval: a, run: r };
+  }
+  decide(id: string, decision: Decision) {
+    this.sweep();
+    const { approval } = this.pendingApproval(id, decision);
+    approval.userDecision = { optionId: decision.optionId, decidedAt: now() };
+    this.resolveApproval(approval, decision.optionId, "user");
+  }
+  decideSubscriber(decision: SubscriberDecision) {
+    this.requireSubscriber(decision);
+    this.sweep();
+    const { approval } = this.pendingApproval(decision.approvalId, decision);
+    if (approval.taskId !== decision.taskId)
+      throw new AppError(409, "审批不属于订阅任务");
+    const existing = approval.reviewerDecisions.find(
+      (d) => d.target === "subscriber",
+    );
+    if (existing) {
+      if (existing.optionId !== decision.optionId)
+        throw new AppError(409, "订阅者已提交审批意见");
+      return;
+    }
+    const decidedAt = Date.now();
+    approval.reviewerDecisions.push({
+      target: "subscriber",
+      optionId: decision.optionId,
+      decidedAt: new Date(decidedAt).toISOString(),
+    });
+    approval.fallbackAt = new Date(
+      decidedAt + LIMITS.approvalGraceMs,
+    ).toISOString();
+    this.store.saveApproval(approval);
+  }
+  private resolveApproval(
+    a: Approval,
+    optionId: string,
+    source: NonNullable<Approval["resolvedBy"]>,
+  ) {
+    const r = this.store.run(a.runId);
+    if (!r) throw new AppError(409, "审批执行已结束");
     a.status = "decided";
-    a.optionId = decision.optionId;
+    a.optionId = optionId;
+    a.resolvedBy = source;
     this.store.transaction(() => {
       this.store.saveApproval(a);
       r.status = this.store.approvals(r.id).some((x) => x.status === "pending")
@@ -417,6 +561,7 @@ export class TaskService {
           .some(
             (a) =>
               a.status === "pending" &&
+              a.fallbackAt === null &&
               time - Date.parse(a.createdAt) >= LIMITS.approvalMs,
           )
       ) {
@@ -434,6 +579,20 @@ export class TaskService {
           this.store.saveRun(r);
           this.store.saveTask(t);
         });
+      else
+        for (const approval of this.store.approvals(r.id)) {
+          if (
+            approval.status !== "pending" ||
+            !approval.fallbackAt ||
+            Date.parse(approval.fallbackAt) > time
+          )
+            continue;
+          const reviewer = approval.reviewerDecisions.find(
+            (decision) => decision.target === "subscriber",
+          );
+          if (reviewer)
+            this.resolveApproval(approval, reviewer.optionId, reviewer.target);
+        }
     }
   }
   async close() {

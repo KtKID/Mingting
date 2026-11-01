@@ -93,6 +93,56 @@ test("Z4a missing or ambiguous accounts and absent encrypted OAuth fail before w
     await f.close();
   }
 });
+test("N7 setup copies and retains only the selected account's existing native Coding Plan location", async () => {
+  const f = await fixture();
+  const location = (identity: string, usage = 1) =>
+    "project-key-location:v1:" +
+    encodeURIComponent(
+      JSON.stringify([
+        "https://bigmodel.cn",
+        "bigmodel",
+        identity,
+        null,
+        usage,
+        "default",
+      ]),
+    );
+  try {
+    const original = JSON.parse(await readFile(f.sourcePath, "utf8"));
+    await writeFile(
+      f.sourcePath,
+      JSON.stringify({
+        ...original,
+        [location("fixture-account")]: "enc:v1:existing-location",
+        [location("other-account")]: "enc:v1:unrelated-location",
+        [location("fixture-account", 2)]: "enc:v1:standard-location",
+        "project-key-location:v1:malformed": "enc:v1:invalid-location",
+      }),
+    );
+    const result = await prepareZcodeLocal(f.options);
+    const credentials = JSON.parse(
+      await readFile(result.credentialsPath, "utf8"),
+    );
+    assert.equal(
+      credentials[location("fixture-account")],
+      "enc:v1:existing-location",
+    );
+    assert.equal(
+      Object.keys(credentials).filter((k) =>
+        k.startsWith("project-key-location:"),
+      ).length,
+      1,
+    );
+    await writeFile(f.sourcePath, JSON.stringify(original));
+    await prepareZcodeLocal(f.options);
+    assert.deepEqual(
+      JSON.parse(await readFile(result.credentialsPath, "utf8")),
+      credentials,
+    );
+  } finally {
+    await f.close();
+  }
+});
 test("Z4a setup rejects outside-project paths and symlink destinations", async () => {
   const f = await fixture();
   try {

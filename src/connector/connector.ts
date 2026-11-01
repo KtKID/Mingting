@@ -28,6 +28,7 @@ export class TaskConnector {
     private adapter: TaskExecutor,
     private onEvent?: (event: DeliveryEvent) => void,
     readonly harnessName = "Codex",
+    private acceptsTask?: (taskId: string) => boolean,
   ) {
     this.base = localBase(base);
   }
@@ -54,6 +55,7 @@ export class TaskConnector {
           try {
             this.onEvent?.(event);
           } catch {}
+          if (this.acceptsTask && !this.acceptsTask(event.taskId)) continue;
           if (!this.pending.has(event.taskId))
             this.pending.set(event.taskId, randomUUID());
           this.kick();

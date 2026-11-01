@@ -29,7 +29,45 @@ const optionsSchema = z
   })
   .strict();
 const credentialsSchema = z.record(z.string(), z.string());
+const locationKeySchema = z.tuple([
+  z.string().url(),
+  z.enum(["bigmodel", "zai"]),
+  z.string(),
+  z.null(),
+  z.literal(1),
+  z.literal("default"),
+]);
 type Options = z.input<typeof optionsSchema>;
+
+function accountLocations(
+  credentials: Record<string, string>,
+  family: string,
+  identity: string,
+) {
+  return Object.fromEntries(
+    Object.entries(credentials).filter(([key, value]) => {
+      if (
+        !key.startsWith("project-key-location:v1:") ||
+        !value.startsWith("enc:v1:")
+      )
+        return false;
+      try {
+        const parsed = locationKeySchema.safeParse(
+          JSON.parse(
+            decodeURIComponent(key.slice("project-key-location:v1:".length)),
+          ),
+        );
+        return (
+          parsed.success &&
+          parsed.data[1] === family &&
+          parsed.data[2] === identity
+        );
+      } catch {
+        return false;
+      }
+    }),
+  );
+}
 
 async function localPath(root: string, value: string) {
   const path = resolve(root, value),
@@ -111,10 +149,20 @@ export async function prepareZcodeLocal(raw: Options) {
     schemaVersion: z.literal(1),
     config: z.object({}).passthrough(),
   }).parse(builtin);
+  const existing = await readFile(credentialsPath, "utf8")
+    .then((text) => credentialsSchema.parse(JSON.parse(text)))
+    .catch((error: unknown) => {
+      const io = z.object({ code: z.literal("ENOENT") }).safeParse(error);
+      if (io.success) return {};
+      throw error;
+    });
+  const family = input.providerId.includes(":bigmodel-") ? "bigmodel" : "zai";
   await privateJson(credentialsPath, {
     [tokenKey]: ciphertext,
     [`account-provider:${input.providerId}:identity`]: identity,
     [`account-provider:${input.providerId}:auth-source`]: "oauth",
+    ...accountLocations(existing, family, identity),
+    ...accountLocations(source, family, identity),
   });
   await privateJson(builtinPath, builtin);
   await privateJson(configPath, {

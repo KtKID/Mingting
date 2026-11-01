@@ -2,13 +2,15 @@
 
 [English](README.en.md)
 
+审批入口位于任务台“发布任务”旁：[审批回放与测试记录](http://127.0.0.1:60390/approval-tests/)。`npm test` / `npm run check` 默认自动运行全部十条审批用例，双方选择、结果填写与每轮归档全部自动完成；页面可选择历史批次。原始真实数据和60390可见回放保留。[使用与证据](reports/approval-e2e/README.md)。
+
 连接人与 Agent 的共享任务工作空间。当前版本：MVP 0.2，含本机 Harness 身份订阅扩展。
 
 本机部署地址 **http://127.0.0.1:60390**，MCP 地址 **http://127.0.0.1:60390/mcp**。本机真实验证：Codex、Grok、ZCode 定向问候均完成；ZCode 使用 GLM-5.3，模型、账户绑定与运行目录由项目内隔离配置提供。详细接口、启停方法和证据见 [Harness 订阅](docs/HARNESS-SUBSCRIPTIONS.md) 与 [qdev 任务](docs/task/task-harness-subscriptions.md)。
 
-本机运行的 TypeScript 任务平台：MCP 提供 `publish_task` 与只读 `list_harnesses`；发布任务和可重放的 `task.available` 事件一起落入 SQLite；独立 Harness 订阅连接器通过真实 HTTP SSE 登记身份、接收匹配目标的事件并领取任务；Codex 调用 ACP，Grok/ZCode 调用各自原生 CLI。React 网页展示标题、任务描述、发布人，以及运行状态和人工审批。
+本机运行的 TypeScript 任务平台：MCP 提供发布、在线身份查询和审批订阅；发布任务和可重放的 `task.available` 事件一起落入 SQLite；独立 Harness 订阅连接器通过真实 HTTP SSE 登记身份、接收匹配目标的事件并领取任务；三个执行器统一通过 ACP 接入，ZCode 由项目桥接器连接原生 `app-server --stdio` 双向通道。React 网页展示标题、任务描述、发布人，以及运行状态和人工审批。
 
-任务订阅是本平台的 HTTP 应用协议；Codex 执行使用标准 ACP v1。两者是独立链路。网页仍使用短轮询刷新界面，网页刷新不是任务订阅，也不是执行连接器。
+任务订阅使用本平台的 HTTP 应用协议，执行与权限请求使用 ACP v1。网页通过同源SSE同步任务、审批和执行过程。审批发起方通过独立的任务专属订阅接收权限请求。Codex 发起、ZCode 执行的真实审批已通过十秒回退与用户优先测试，见[验证记录](reports/zcode-approval-channel/README.md)。
 
 ## 当前功能与支持范围
 
@@ -17,8 +19,8 @@
 | 发布任务   | MCP `publish_task`，接收标题、描述、发布人名字与可选目标 Harness；也可使用网页表单            |
 | 任务列表   | React + TypeScript 网页展示标题、描述、发布人、状态、结果与审批；支持桌面、手机尺寸和明暗主题 |
 | 订阅与领取 | 独立 HTTP SSE 订阅、SQLite 持久事件、断线补发、原子领取和运行所有权                           |
-| 执行连接器 | 本机 Codex ACP、Grok/ZCode 原生 CLI 连接器；新增 CLI 当前只验证简短文字任务                   |
-| 人工审批   | 展示原始工具上下文与选项；支持允许、拒绝、取消、超时和旧请求失效，不自动批准                  |
+| 执行连接器 | 本机 Codex ACP、Grok 原生 ACP、ZCode 原生双向桥接；真实验证问候、只读工具与 ZCode 审批        |
+| 人工审批   | 自动弹窗、用户与订阅者意见；用户优先，订阅者决定后保留10秒用户窗口；第三方审批置灰            |
 | 恢复与状态 | 心跳租约、顺序幂等回传、进程退出恢复、显式重试；收到通知不等于执行成功                        |
 | 本地持久化 | SQLite 保存任务、运行、审批和有限 ACP 事件；任务通知事件支持重放                              |
 
@@ -167,13 +169,13 @@ url = "http://127.0.0.1:60390/mcp"
 }
 ```
 
-返回 `structuredContent: {"taskId":"<UUID>"}`。不需要打开网页或先启动连接器也能发布。项目包含官方 MCP 客户端示例：
+返回的 `structuredContent` 包含 `taskId`；启用订阅者审批时还包含发起方专属的 `approvalSubscription`。不需要打开网页或先启动连接器也能发布。项目包含官方 MCP 客户端示例：
 
 ```bash
 npm run publish -- "补充安装说明" "检查 README 并补充启动步骤" "小林"
 ```
 
-MCP `list_harnesses` 查询在线订阅身份；SSE 负责登记和通知，审批仍走现有网页流程。发布人名字仅展示，不代表认证身份。相同发布请求会生成不同任务，发布本身不是幂等操作。
+MCP `list_harnesses` 查询在线订阅身份；SSE 负责登记和通知，审批发起方接收、提交与用户优先规则见 [审批](docs/APPROVALS.md)。发布人名字仅展示，不代表认证身份。相同发布请求会生成不同任务，发布本身不是幂等操作。
 
 ## 订阅、领取与回传协议
 
@@ -186,7 +188,7 @@ MCP `list_harnesses` 查询在线订阅身份；SSE 负责登记和通知，审�
 | `POST /connector/runs/:id/heartbeat`                      | `{ownerId, claimId}` 续约，返回状态和 cancelRequested                                |
 | `POST /connector/runs/:id/report`                         | `{ownerId, claimId, seq, update}`，顺序、幂等地回传会话、能力、通知或最终结果        |
 | `POST /connector/runs/:id/permissions`                    | 当前所有者转交 ACP requestId 和原始 RequestPermissionRequest                         |
-| `POST /connector/runs/:id/permissions/:approvalId/result` | 所有者查询人工决策，pending 时不能自动允许                                           |
+| `POST /connector/runs/:id/permissions/:approvalId/result` | 所有者查询平台最终决策，pending 时继续等待                                           |
 
 SSE 示例：
 
@@ -198,6 +200,10 @@ data: {"id":42,"type":"task.available","taskId":"<UUID>","createdAt":"<ISO时间
 ```
 
 应用 schema 与派生类型集中在 `src/shared/protocol.ts`。ACP 仍使用官方 SDK；经 HTTP 转交的 ACP 负载额外使用 SDK 随附的官方 JSON Schema + Ajv 校验，没有另写一套 ACP wire schema。
+
+## 审批订阅
+
+发布任务支持 `approvalTargets: ["subscriber"]`（默认）或 `[]`（用户审批）。网页用复选框展示“订阅者”和置灰的“第三方”。`publish_task` 返回发起方专属的 `approvalSubscription`；发起方保存后，通过 `wait_for_approval` 接收审批、`submit_approval_decision` 提交原始ACP选项。也可使用常驻HTTP SSE。完整接口与规则见 [审批](docs/APPROVALS.md)。
 
 ## 可靠性与执行归属
 
@@ -215,12 +221,12 @@ data: {"id":42,"type":"task.available","taskId":"<UUID>","createdAt":"<ISO时间
 ## 现在会不会卡住？
 
 - `queued`：等待连接器在线或等待前一任务释放；离线发布允许正常排队。
-- `awaiting_approval`：明确等待人。当前单并发设计会让后续任务等候，但不是事件丢失或程序死锁。可批准、拒绝或取消；10 分钟审批超时会取消。
+- `awaiting_approval`：明确等待人。当前单并发设计会让后续任务等候，但不是事件丢失或程序死锁。可批准、拒绝或取消；订阅者保持待决定时，10分钟审批超时会取消；有效订阅者意见启动10秒用户窗口。
 - `cancelled` 且原运行未结束：正在让原进程停止。网页显示“正在停止原执行…”，结束前不允许重试，避免重叠执行。
 - 连接器异常退出/失联：租约过期后变 `interrupted`，旧审批失效、槽位释放，不会永久堵住后续队列；需要重新启动连接器才能继续领取。
 - 总执行超时 30 分钟。停止走 ACP cancel、stdin EOF 和必要的进程组 SIGTERM/SIGKILL 清理。
 
-拒绝使用原始 reject optionId 回给同一 ACP 请求，取消回 `cancelled`；重复、旧运行、错误 session 的审批返回 409。网页断开不会自动批准。固定 `workspace-write / on-request / 人工审批者`；没有 full-access、YOLO 或模型代批。只有 Codex 实际上报的 ACP 权限请求进入审批，沙箱内常规操作不保证逐条询问。
+拒绝使用原始 reject optionId 回给同一 ACP 请求，取消回 `cancelled`；重复、旧运行、错误 session 的审批返回 409。用户在审批等待期间的决定立即生效；订阅者先决定后等待10秒，期满采用其意见。网页断开沿用服务端截止时间。执行器保持 `workspace-write / on-request`，实际权限请求统一交明庭裁决。只有 Codex 实际上报的 ACP 权限请求进入审批，沙箱内常规操作不保证逐条询问。
 
 ## 安全、限制与验证
 

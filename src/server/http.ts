@@ -13,10 +13,14 @@ import {
   reportSchema,
   permissionSubmissionSchema,
   harnessSubscriptionSchema,
+  approvalSubscriptionSchema,
+  subscriberDecisionSchema,
+  approvalWaitSchema,
   type DeliveryEvent,
 } from "../shared/protocol.js";
 import { Store } from "./store.js";
 import { TaskService, AppError } from "./service.js";
+import { readApprovalHistory } from "./approval-history.js";
 
 type Config = {
   dbPath: string;
@@ -165,6 +169,8 @@ export function createPlatform(config: Config) {
         tasks: store.list(),
         harnesses: service.harnesses(),
         detail: taskId ? (store.detail(taskId) ?? null) : null,
+        pendingApprovals: store.pendingApprovals(),
+        serverTime: Date.now(),
       };
       write(`event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n`);
     };
@@ -220,6 +226,65 @@ export function createPlatform(config: Config) {
     service.decide(req.params.id, decisionSchema.parse(req.body));
     res.json({ ok: true });
   });
+  app.use("/subscriber", (req, res, next) => {
+    if (
+      req.headers.origin !== undefined ||
+      req.headers["sec-fetch-site"] !== undefined
+    )
+      return res.status(403).json({ error: "审批订阅接口仅供本机客户端使用" });
+    next();
+  });
+  let approvalSubscriberCount = 0;
+  app.get("/subscriber/events", (req, res) => {
+    const subscription = approvalSubscriptionSchema.parse({
+      taskId: req.query.taskId,
+      subscriptionToken: z
+        .string()
+        .regex(/^Bearer [a-f0-9]{64}$/)
+        .parse(req.headers.authorization)
+        .slice(7),
+    });
+    service.approvalSnapshot(subscription);
+    if (approvalSubscriberCount >= LIMITS.subscribers)
+      throw new AppError(429, "审批订阅数量超限");
+    approvalSubscriberCount++;
+    let previous = "";
+    res.status(200).set({
+      "Content-Type": "text/event-stream",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    res.setTimeout(0);
+    res.flushHeaders();
+    const stop = () => res.end();
+    const send = () => {
+      if (res.writableEnded) return;
+      const data = JSON.stringify(service.approvalSnapshot(subscription));
+      if (data === previous) return;
+      previous = data;
+      if (!res.write(`event: approval.snapshot\ndata: ${data}\n\n`)) stop();
+    };
+    const heartbeat = setInterval(() => {
+      if (!res.write(": heartbeat\n\n")) stop();
+    }, LIMITS.subscriptionHeartbeatMs);
+    service.events.on("changed", send);
+    service.events.once("close", stop);
+    res.once("close", () => {
+      approvalSubscriberCount--;
+      clearInterval(heartbeat);
+      service.events.off("changed", send);
+      service.events.off("close", stop);
+    });
+    // Pending approvals are durable; a reconnect starts with the current task snapshot.
+    send();
+  });
+  app.post("/subscriber/decision", (req, res) => {
+    service.decideSubscriber(subscriberDecisionSchema.parse(req.body));
+    res.json({ ok: true });
+  });
+  app.use("/subscriber", (_req, res) =>
+    res.status(404).json({ error: "审批订阅接口不存在" }),
+  );
   // Connector transport is separate from MCP and browser sessions; trusted local CLI only.
   app.use("/connector", (req, res, next) => {
     if (
@@ -338,7 +403,7 @@ export function createPlatform(config: Config) {
       {
         title: "发布任务",
         description:
-          "发布任务；targetHarness 指定订阅执行者（Codex、ZCode、Grok）。目标离线时保持排队。publisherName 为展示名。",
+          "发布任务；targetHarness 指定执行者。approvalTargets 默认 [subscriber]，也可 [] 仅由用户审批；third_party 尚在开发。返回的 approvalSubscription 仅供发起方保存，调用 wait_for_approval 接收审批、submit_approval_decision 提交意见。publisherName 为展示名。",
         inputSchema: publishTaskSchema,
         annotations: {
           readOnlyHint: false,
@@ -388,6 +453,72 @@ export function createPlatform(config: Config) {
         };
       },
     );
+    const toolError = (error: unknown) => ({
+      isError: true,
+      content: [
+        {
+          type: "text" as const,
+          text: error instanceof AppError ? error.message : "审批请求失败",
+        },
+      ],
+    });
+    mcp.registerTool(
+      "wait_for_approval",
+      {
+        title: "订阅任务审批",
+        description:
+          "使用 publish_task 返回的 approvalSubscription 等待审批（每次最多25秒）。检查完整工具上下文并调用 submit_approval_decision；任务仍活动时持续等待。已提交意见的审批会保留在快照中。",
+        inputSchema: approvalWaitSchema,
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+      },
+      async (input, extra) => {
+        try {
+          const result = await service.waitForApproval(
+            input,
+            input.waitMs,
+            extra.signal,
+          );
+          return {
+            content: [{ type: "text", text: JSON.stringify(result) }],
+            structuredContent: result,
+          };
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    );
+    mcp.registerTool(
+      "submit_approval_decision",
+      {
+        title: "提交订阅者审批意见",
+        description:
+          "发起方使用任务专属订阅凭据和原始 ACP optionId 提交同意或拒绝。平台保留10秒用户决定窗口；用户决定优先。相同意见重试保持原截止时间。",
+        inputSchema: subscriberDecisionSchema,
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: true,
+          idempotentHint: true,
+          openWorldHint: true,
+        },
+      },
+      async (input) => {
+        try {
+          service.decideSubscriber(input);
+          const result = { ok: true };
+          return {
+            content: [{ type: "text", text: JSON.stringify(result) }],
+            structuredContent: result,
+          };
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    );
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,
@@ -403,6 +534,17 @@ export function createPlatform(config: Config) {
     res.status(405).json({ error: "仅支持 MCP Streamable HTTP POST" }),
   );
   app.use("/api", (_req, res) => res.status(404).json({ error: "接口不存在" }));
+  app.get("/approval-tests/data/history.json", async (_req, res) =>
+    res.json(await readApprovalHistory(resolve("reports/approval-e2e"))),
+  );
+  app.use(
+    "/approval-tests/data",
+    express.static(resolve("reports/approval-e2e"), {
+      index: "index.html",
+      dotfiles: "deny",
+      fallthrough: false,
+    }),
+  );
   app.use(
     express.static(resolve("dist/web"), {
       index: "index.html",

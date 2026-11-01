@@ -16,6 +16,7 @@
     "tests",
     "vite.config.ts",
     "playwright.config.ts",
+    "playwright.approval.config.ts",
     "scripts"
   ]
 }

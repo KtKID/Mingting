@@ -1,7 +1,5 @@
-// Project ACP bridge: real native ZCode stream-json, one text turn in read-only plan mode.
-import { spawn } from "node:child_process";
+// Project ACP bridge to ZCode's native, bidirectional app-server protocol.
 import { Readable, Writable } from "node:stream";
-import { once } from "node:events";
 import { randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
@@ -14,6 +12,14 @@ import {
 } from "@agentclientprotocol/sdk";
 import { LIMITS } from "../src/shared/protocol.js";
 import { translateZcodeLine } from "../src/server/zcode-stream.js";
+import {
+  ZcodeNative,
+  nativeSessionSchema,
+  mapZcodePermission,
+  nativeDeferred,
+} from "../src/server/zcode-native.js";
+import { loadZcodeAccount } from "../src/server/zcode-account.js";
+import { z } from "zod";
 
 const workspace = realpathSync(
   resolve(process.env.TASK_WORKSPACE ?? process.cwd()),
@@ -24,14 +30,14 @@ let created = false,
 let active: AbortController | undefined;
 const modes = {
   currentModeId: "plan",
-  availableModes: [{ id: "plan", name: "只读问候与文件读取" }],
+  availableModes: [{ id: "plan", name: "只读工具 · 明庭审批" }],
 };
-const connection = agent({ name: "mingting-zcode-stream-acp" })
+const connection = agent({ name: "mingting-zcode-native-acp" })
   .onRequest(methods.agent.initialize, () => ({
     protocolVersion: PROTOCOL_VERSION,
     agentInfo: {
-      name: "ZCode · Mingting stream-json ACP bridge",
-      version: "1",
+      name: "ZCode · Mingting native app-server ACP bridge",
+      version: "2",
     },
     agentCapabilities: {},
     authMethods: [],
@@ -65,138 +71,213 @@ const connection = agent({ name: "mingting-zcode-stream-acp" })
       ctx.params.sessionId !== sessionId ||
       ctx.params.prompt.some((p) => p.type !== "text")
     )
-      throw new Error("桥接器仅支持一次文本问候回合");
+      throw new Error("桥接器仅支持一次文本回合");
     used = true;
     const controller = new AbortController();
     active = controller;
-    const signal = AbortSignal.any([
-      controller.signal,
-      ctx.signal,
-      AbortSignal.timeout(LIMITS.cliMs),
-    ]);
-    const text = ctx.params.prompt
-      .map((p) => (p.type === "text" ? p.text : ""))
-      .join("\n");
-    const child = spawn(
-      "zcode",
-      [
-        "--cwd",
-        workspace,
-        "--mode",
-        "plan",
-        "--workflow-mode",
-        "disabled",
-        "--disallowed-tools",
-        "Bash,Edit,Write,Glob,Grep,WebSearch,WebFetch,Task",
-        "--output-format",
-        "stream-json",
-        "-p",
-        text,
-      ],
-      {
-        cwd: workspace,
-        env: process.env,
-        stdio: ["ignore", "pipe", "pipe"],
-      },
-    );
-    child.stderr.resume();
-    const exit = once(child, "close");
-    void exit.catch(() => {});
-    let hardKill: NodeJS.Timeout | undefined;
-    const cancel = () => {
-      child.kill("SIGTERM");
-      hardKill = setTimeout(() => child.kill("SIGKILL"), LIMITS.killMs);
-    };
-    signal.addEventListener("abort", cancel, { once: true });
-    let buffer = "",
-      answer = "",
-      summary: ReturnType<typeof translateZcodeLine>["result"];
+    // Platform run/approval deadlines own this lifecycle, including human wait time.
+    const signal = AbortSignal.any([controller.signal, ctx.signal]);
+    const account = await loadZcodeAccount();
+    let nativeSessionId: string | undefined;
+    const turn = nativeDeferred<"end_turn">();
+    void turn.promise.catch(() => {});
+    const approvals = new Map<
+      string,
+      { fingerprint: string; result: Promise<unknown> }
+    >();
     let pending: SessionNotification | undefined;
     let flushTimer: NodeJS.Timeout | undefined;
+    let hasOutput = false;
+    let emissions = Promise.resolve();
     const flush = async () => {
       clearTimeout(flushTimer);
       flushTimer = undefined;
-      if (pending) {
-        const value = pending;
-        pending = undefined;
-        await ctx.client.notify(methods.client.session.update, value);
-      }
+      const next = pending;
+      pending = undefined;
+      if (next) await ctx.client.notify(methods.client.session.update, next);
     };
     const emit = async (value: SessionNotification) => {
-      const u = value.update,
+      const update = value.update,
         previous = pending?.update;
       if (
-        (u.sessionUpdate === "agent_message_chunk" ||
-          u.sessionUpdate === "agent_thought_chunk") &&
-        u.content.type === "text"
+        (update.sessionUpdate === "agent_message_chunk" ||
+          update.sessionUpdate === "agent_thought_chunk") &&
+        update.content.type === "text"
       ) {
-        if (u.sessionUpdate === "agent_message_chunk") answer += u.content.text;
+        if (update.sessionUpdate === "agent_message_chunk")
+          hasOutput ||= update.content.text.length > 0;
         if (
-          previous?.sessionUpdate === u.sessionUpdate &&
+          previous?.sessionUpdate === update.sessionUpdate &&
           previous.content.type === "text" &&
           previous.content.text.length < LIMITS.toolChars
         ) {
-          previous.content.text += u.content.text;
+          previous.content.text += update.content.text;
           return;
         }
         await flush();
         pending = value;
         flushTimer = setTimeout(() => {
-          void flush().catch(() => controller.abort());
+          emissions = emissions
+            .then(flush)
+            .catch((error: unknown) => turn.reject(error));
         }, LIMITS.browserFlushMs);
       } else {
         await flush();
         await ctx.client.notify(methods.client.session.update, value);
       }
     };
-    const line = async (text: string) => {
-      if (summary) throw new Error("ZCode 在结果后继续输出事件");
-      const mapped = translateZcodeLine(JSON.parse(text), sessionId);
-      if (mapped.update) await emit(mapped.update);
-      if (mapped.result) summary = mapped.result;
-    };
-    try {
-      if (signal.aborted) cancel();
-      for await (const chunk of child.stdout.setEncoding("utf8")) {
-        signal.throwIfAborted();
-        buffer += chunk;
-        let boundary;
-        while ((boundary = buffer.indexOf("\n")) >= 0) {
-          if (boundary > LIMITS.acpBytes) throw new Error("ZCode 单条事件过大");
-          const value = buffer.slice(0, boundary);
-          buffer = buffer.slice(boundary + 1);
-          if (value.trim()) await line(value);
+    const native = new ZcodeNative(
+      workspace,
+      async (method, params) => {
+        if (method === "session/requestRuntimePreferences")
+          return {
+            nativeSearchEnhancementsEnabled: false,
+            memoryEnabled: false,
+            askUserQuestionAutoResolutionEnabled: false,
+            subagentRuntimeConfigEnabled: false,
+            toolSearchMode: "off",
+          };
+        if (
+          method === "interaction/requestProviderRuntimeHeaders" &&
+          account &&
+          nativeSessionId
+        )
+          return account.headers(params, nativeSessionId);
+        if (
+          method !== "interaction/requestPermission" ||
+          !nativeSessionId ||
+          signal.aborted
+        )
+          throw new Error("未支持的 ZCode 反向请求");
+        const mapped = mapZcodePermission(params, nativeSessionId, sessionId);
+        const fingerprint = JSON.stringify(mapped.native);
+        const existing = approvals.get(mapped.native.requestId);
+        if (existing) {
+          if (existing.fingerprint !== fingerprint)
+            throw new Error("ZCode 重复审批内容变化");
+          return existing.result;
         }
-        if (buffer.length > LIMITS.acpBytes)
-          throw new Error("ZCode 单条事件过大");
-      }
-      if (buffer.trim()) await line(buffer);
-      const [code] = await exit;
+        if (approvals.size >= LIMITS.approvalsPerRun)
+          throw new Error("ZCode 审批数量超限");
+        const result = (async () => {
+          await emissions;
+          await flush();
+          const response = await ctx.client.request(
+            methods.client.session.requestPermission,
+            mapped.request,
+            { cancellationSignal: signal },
+          );
+          if (signal.aborted || response.outcome.outcome !== "selected")
+            return { decision: "deny", reason: "明庭审批取消，停止本次操作" };
+          const optionId = response.outcome.optionId;
+          const choice = mapped.choices.find(
+            (option) => option.optionId === optionId,
+          );
+          return (
+            choice?.response ?? {
+              decision: "deny",
+              reason: "明庭返回的审批选项无效",
+            }
+          );
+        })();
+        approvals.set(mapped.native.requestId, { fingerprint, result });
+        return result;
+      },
+      async (event) => {
+        if (event.sessionId !== nativeSessionId || signal.aborted) return;
+        if (event.type === "turn.completed") {
+          const terminal = z
+            .object({
+              resultType: z.string().optional(),
+              response: z.string().optional(),
+            })
+            .parse(event.payload);
+          if (
+            terminal.resultType &&
+            !["success", "completed"].includes(terminal.resultType)
+          ) {
+            turn.reject(new Error("ZCode 回合结束：" + terminal.resultType));
+            return;
+          }
+          await emissions;
+          if (!hasOutput && terminal.response)
+            await emit({
+              sessionId,
+              update: {
+                sessionUpdate: "agent_message_chunk",
+                content: { type: "text", text: terminal.response },
+              },
+            });
+          await flush();
+          turn.resolve("end_turn");
+        } else if (event.type === "turn.failed")
+          turn.reject(new Error("ZCode 原生回合失败"));
+        else {
+          const translated = translateZcodeLine(event, sessionId);
+          if (translated.update) {
+            const update = translated.update;
+            emissions = emissions.then(() => emit(update));
+            await emissions;
+          }
+        }
+      },
+    );
+    const abort = () => {
+      turn.reject(signal.reason ?? new Error("ZCode 执行已取消"));
+      if (nativeSessionId)
+        void native
+          .request("session/stop", { sessionId: nativeSessionId })
+          .catch(() => {});
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    try {
       signal.throwIfAborted();
-      if (code !== 0 || !summary)
-        throw new Error("ZCode 流式回合未成功完成，请检查项目登录与模型配置");
-      if (!answer && summary.response)
-        await emit({
-          sessionId,
-          update: {
-            sessionUpdate: "agent_message_chunk",
-            content: { type: "text", text: summary.response },
-          },
-        });
-      await flush();
-      return { stopReason: "end_turn" };
+      if (account)
+        await native.request("provider/updateAccountConfig", account.overlay);
+      const session = nativeSessionSchema.parse(
+        await native.request("session/create", {
+          workspace: { workspacePath: workspace, workspaceKey: workspace },
+          mode: "plan",
+          toolAllowlist: ["Read"],
+          toolDenylist: [
+            "Bash",
+            "Edit",
+            "Write",
+            "Agent",
+            "Task",
+            "Glob",
+            "Grep",
+            "WebSearch",
+            "WebFetch",
+          ],
+          dynamicWorkflowEnabled: false,
+          titleGenerationEnabled: false,
+          mcpServers: [],
+          ...(account ? { model: account.selection } : {}),
+        }),
+      );
+      nativeSessionId = session.session.sessionId;
+      await native.request("session/subscribe", {
+        sessionId: nativeSessionId,
+        deliveryKind: "desktop-continuous",
+        includeSnapshot: false,
+      });
+      await native.request("session/send", {
+        sessionId: nativeSessionId,
+        ...(account ? { modelSelection: account.selection } : {}),
+        content: ctx.params.prompt
+          .map((p) => (p.type === "text" ? p.text : ""))
+          .join("\n"),
+      });
+      const stopReason = await Promise.race([turn.promise, native.failed]);
+      return { stopReason };
     } catch (error) {
-      if (controller.signal.aborted) return { stopReason: "cancelled" };
+      if (signal.aborted) return { stopReason: "cancelled" };
       throw error;
     } finally {
-      signal.removeEventListener("abort", cancel);
+      signal.removeEventListener("abort", abort);
       clearTimeout(flushTimer);
-      clearTimeout(hardKill);
-      if (child.exitCode === null && child.signalCode === null) {
-        cancel();
-        await exit.catch(() => {});
-        clearTimeout(hardKill);
-      }
+      await native.close();
       active = undefined;
     }
   })

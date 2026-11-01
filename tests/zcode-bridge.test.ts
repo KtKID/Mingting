@@ -4,22 +4,12 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { CodexAdapter } from "../src/server/codex-adapter.js";
+import { fakeZcodeNative } from "./zcode-fixture.js";
 test("A10 ZCode bridge streams UTF-8 before exit and handles batch, malformed data, exit failure and cancellation", async () => {
   const dir = await mkdtemp(join(tmpdir(), "zcode-bridge-"));
   const bin = join(dir, "bin");
   await mkdir(bin);
-  await writeFile(
-    join(bin, "zcode"),
-    `#!/usr/bin/env node
-const text=process.argv.at(-1), write=x=>process.stdout.write(JSON.stringify(x)+'\\n');
-if(text==='invalid'){console.log('{invalid}');process.exit(0)}
-const line=Buffer.from(JSON.stringify({type:'model.streaming',payload:{kind:'text_delta',delta:'你好'}})+'\\n');
-for(let i=0;i<line.length;i+=2)process.stdout.write(line.subarray(i,i+2));
-write({type:'tool.updated',payload:{kind:'batch',toolCallIds:[]}});
-if(text==='cancel'){setInterval(()=>{},1000)}else setTimeout(()=>{write({type:'result',sessionId:'s',response:'你好',projection:{status:'idle'}});process.exit(text==='exit'?7:0)},200);
-`,
-    { mode: 0o700 },
-  );
+  await writeFile(join(bin, "zcode"), fakeZcodeNative, { mode: 0o700 });
   const adapter = new CodexAdapter({
     command: process.execPath,
     args: [

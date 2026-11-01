@@ -1,0 +1,379 @@
+:root {
+  font-family:
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    "PingFang SC",
+    sans-serif;
+  color: #293126;
+  background: #f8f8f2;
+  color-scheme: light;
+  font-synthesis: none;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+button,
+a,
+input {
+  touch-action: manipulation;
+}
+button {
+  font: inherit;
+  cursor: pointer;
+}
+a {
+  color: #626c49;
+  text-underline-offset: 4px;
+}
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+main {
+  max-width: 1510px;
+  margin: auto;
+  padding: 28px 42px;
+}
+header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: #858a79;
+}
+.intro {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 30px;
+  margin-top: 45px;
+}
+.eyebrow {
+  font-size: 11px;
+  letter-spacing: 1.8px;
+  color: #8b916d;
+}
+h1 {
+  font-size: 34px;
+  font-weight: 650;
+  letter-spacing: -1px;
+  margin: 14px 0;
+}
+h2 {
+  font-size: 22px;
+  margin: 8px 0;
+}
+h3 {
+  font-size: 14px;
+  margin: 26px 0 16px;
+}
+.intro p:not(.eyebrow) {
+  color: #78806f;
+  font-size: 14px;
+  line-height: 1.8;
+  max-width: 740px;
+}
+.score {
+  text-align: right;
+  white-space: nowrap;
+}
+.score b {
+  display: block;
+  font-size: 45px;
+  font-weight: 500;
+}
+.score small {
+  font-size: 23px;
+  color: #a7ac9c;
+}
+.score span {
+  font-size: 12px;
+  color: #818a72;
+}
+.boundary {
+  font-size: 12px;
+  color: #7d846f;
+  background: #efefe2;
+  border-radius: 8px;
+  padding: 13px 16px;
+  line-height: 1.7;
+  margin: 25px 0;
+}
+.batch-picker {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 24px 0 10px;
+  font-size: 12px;
+  color: #737d62;
+  flex-wrap: wrap;
+}
+.batch-picker label {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+}
+.batch-picker select {
+  font: inherit;
+  padding: 10px;
+  border: 1px solid #dfe3d1;
+  border-radius: 7px;
+  background: #fff;
+  color: #39452e;
+  max-width: 100%;
+}
+.batch-meta {
+  color: #889278;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  margin: -10px 0 20px;
+  line-height: 1.8;
+}
+.stage-results {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin-top: 6px;
+}
+.layout {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 22px;
+}
+nav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+nav button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 15px 12px;
+  font-size: 12px;
+  color: #69715e;
+  gap: 10px;
+}
+nav b {
+  font-size: 10px;
+  font-weight: 500;
+  margin-right: 10px;
+  color: #929a80;
+}
+nav em {
+  font-style: normal;
+  font-size: 10px;
+  white-space: nowrap;
+}
+nav .selected {
+  border-color: #d6d9c5;
+  background: #f0f2e6;
+  color: #303a28;
+}
+.pass {
+  color: #527f40;
+}
+.fail,
+[role="alert"] {
+  color: #af473d;
+}
+article {
+  background: #fff;
+  border: 1px solid #e4e6db;
+  border-radius: 12px;
+  min-width: 0;
+  padding: 24px;
+}
+.case-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+}
+.task-link {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.decisions {
+  display: flex;
+  gap: 42px;
+  border-top: 1px solid #eff0e9;
+  border-bottom: 1px solid #eff0e9;
+  padding: 15px 0;
+  margin: 15px 0;
+}
+.decisions div {
+  font-size: 11px;
+  color: #8a907c;
+}
+.decisions strong {
+  display: block;
+  color: #46533b;
+  font-size: 14px;
+  margin-top: 6px;
+  font-weight: 550;
+}
+.viewer {
+  border: 1px solid #eeeede;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #f9f9f3;
+  height: min(56vh, 620px);
+  min-height: 260px;
+}
+.viewer img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.placeholder {
+  padding: 80px 10px;
+  text-align: center;
+  font-size: 13px;
+  color: #a0a790;
+}
+.playback {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 15px;
+}
+.playback button {
+  border: 1px solid #e1e4d3;
+  border-radius: 6px;
+  background: #f8f9ef;
+  padding: 8px 12px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.playback button:first-child {
+  background: #e7cf53;
+  border-color: #e7cf53;
+  color: #3a351d;
+}
+.playback input {
+  flex: 1;
+  min-width: 50px;
+  accent-color: #899362;
+}
+.playback span {
+  font-size: 11px;
+  color: #8e957e;
+  white-space: nowrap;
+}
+.caption {
+  font-size: 12px;
+  color: #828b70;
+  min-height: 20px;
+}
+.evidence {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 30px;
+  border-top: 1px solid #eff0e9;
+}
+.evidence ol,
+.evidence ul {
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+  line-height: 1.8;
+}
+.evidence li {
+  margin: 9px 0;
+}
+.evidence time {
+  color: #9a9e8d;
+  margin-right: 10px;
+  font-size: 10px;
+}
+.evidence ol li {
+  display: flex;
+}
+.evidence pre {
+  background: #f5f6ed;
+  border-radius: 6px;
+  padding: 14px;
+  font-size: 12px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.muted {
+  color: #999f8d;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+.sources {
+  margin: 25px 0;
+  color: #858e76;
+  font-size: 11px;
+  line-height: 1.8;
+}
+.sources summary {
+  cursor: pointer;
+}
+.sources code {
+  overflow-wrap: anywhere;
+  font-size: 10px;
+}
+footer {
+  border-top: 1px solid #e5e8da;
+  padding: 20px 0;
+  color: #9da58e;
+  font-size: 11px;
+}
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid #a3ad7e;
+  outline-offset: 0;
+}
+@media (max-width: 850px) {
+  main {
+    padding: 20px 16px;
+  }
+  .intro {
+    margin-top: 26px;
+  }
+  h1 {
+    font-size: 25px;
+  }
+  .layout {
+    grid-template-columns: 1fr;
+  }
+  nav {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  nav button {
+    padding: 10px 6px;
+  }
+  .evidence {
+    grid-template-columns: 1fr;
+  }
+  .score b {
+    font-size: 32px;
+  }
+  article {
+    padding: 15px;
+  }
+  .playback {
+    gap: 5px;
+  }
+  .playback button {
+    padding: 7px;
+  }
+  .task-link {
+    font-size: 10px;
+  }
+}

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { SessionNotification } from "@agentclientprotocol/sdk";
 
-// ZCode 0.17.1 stream-json, shaped by the official CLI's mapSessionEvent.
+// Native ZCode 0.17.1 session events, shaped by the official mapSessionEvent.
 const envelope = z.object({
   type: z.string(),
   sessionId: z.string().optional(),
@@ -29,6 +29,27 @@ export function translateZcodeLine(
 ): { update?: SessionNotification; result?: z.infer<typeof result> } {
   const event = envelope.parse(value);
   if (event.type === "result") return { result: result.parse(value) };
+  if (event.type === "permission.resolved") {
+    const payload = z
+      .object({
+        toolCallId: z.string().min(1),
+        decision: z.string(),
+        reason: z.string().optional(),
+      })
+      .parse(event.payload);
+    if (payload.decision !== "deny") return {};
+    return {
+      update: {
+        sessionId,
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: payload.toolCallId,
+          status: "failed",
+          rawOutput: payload.reason ?? "审批拒绝，操作已停止",
+        },
+      },
+    };
+  }
   if (event.type === "model.streaming") {
     const payload = model.parse(event.payload);
     if (payload.kind !== "text_delta" && payload.kind !== "reasoning_delta")

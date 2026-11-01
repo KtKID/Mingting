@@ -19,6 +19,12 @@ import {
   type Approval,
 } from "../shared/protocol";
 import "./style.css";
+import { ApprovalCard } from "./approval-card";
+
+const viewParams = new URLSearchParams(window.location.search);
+if (viewParams.get("theme") === "light")
+  document.documentElement.dataset.theme = "light";
+const linkedTask = z.string().uuid().safeParse(viewParams.get("task"));
 
 const statusNames: Record<Task["status"], string> = {
   queued: "排队中",
@@ -122,7 +128,9 @@ function App() {
   const [boot, setBoot] = useState<Bootstrap>();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [harnesses, setHarnesses] = useState<HarnessSubscription[]>([]);
-  const [selected, setSelected] = useState<string>();
+  const [selected, setSelected] = useState<string | undefined>(
+    linkedTask.success ? linkedTask.data : undefined,
+  );
   const [detail, setDetail] = useState<TaskDetail>();
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
@@ -130,6 +138,10 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [online, setOnline] = useState(true);
+  const [pendingApprovals, setPendingApprovals] = useState<Approval[]>([]);
+  const [activeApprovalId, setActiveApprovalId] = useState<string>();
+  const [clockOffset, setClockOffset] = useState(0);
+  const dismissedApprovals = useRef(new Set<string>());
   async function api<T>(
     path: string,
     schema: z.ZodType<T>,
@@ -208,6 +220,9 @@ function App() {
           setTasks(snapshot.tasks);
           setHarnesses(snapshot.harnesses);
           setDetail(snapshot.detail ?? undefined);
+          setPendingApprovals(snapshot.pendingApprovals);
+          if (snapshot.serverTime !== undefined)
+            setClockOffset(snapshot.serverTime - Date.now());
           setOnline(true);
         } catch {
           setError("实时数据格式无效，请刷新页面");
@@ -228,6 +243,18 @@ function App() {
       source?.close();
     };
   }, [boot, selected]);
+  useEffect(() => {
+    if (
+      activeApprovalId &&
+      pendingApprovals.some((approval) => approval.id === activeApprovalId)
+    )
+      return;
+    setActiveApprovalId(
+      pendingApprovals.find(
+        (approval) => !dismissedApprovals.current.has(approval.id),
+      )?.id,
+    );
+  }, [pendingApprovals, activeApprovalId]);
   async function act(path: string, body: unknown) {
     setBusy(true);
     setError("");
@@ -241,7 +268,9 @@ function App() {
   }
   async function publish(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const values = Object.fromEntries(new FormData(e.currentTarget));
+    const data = new FormData(e.currentTarget);
+    const values: Record<string, unknown> = Object.fromEntries(data);
+    values.approvalTargets = data.getAll("approvalTargets");
     if (values.targetHarness === "") delete values.targetHarness;
     setBusy(true);
     setError("");
@@ -266,73 +295,31 @@ function App() {
         .toLowerCase()
         .includes(search.toLowerCase()),
   );
-  function approval(a: Approval) {
+  function approval(a: Approval, modal = false) {
+    const task = tasks.find((task) => task.id === a.taskId) ?? detail?.task;
     return (
-      <section
-        className={"approval " + (a.status === "pending" ? "pending" : "")}
+      <ApprovalCard
         key={a.id}
-      >
-        <div className="section-title">
-          <Icon name="shield" />
-          <h3>
-            {a.status === "pending"
-              ? "需要你的审批"
-              : a.status === "decided"
-                ? "审批已处理"
-                : "审批已失效"}
-          </h3>
-        </div>
-        <p className="tool-title">{a.request.toolCall.title ?? "工具操作"}</p>
-        <p className="muted small">
-          选项由当前执行器提供。操作是否继续，以执行器返回结果为准。
-        </p>
-        <details>
-          <summary>查看操作上下文与原始选项</summary>
-          <pre>
-            {JSON.stringify(
-              { toolCall: a.request.toolCall, options: a.request.options },
-              null,
-              2,
-            )}
-          </pre>
-          <p className="mono small">
-            Run {a.runId}
-            <br />
-            Session {a.sessionId}
-            <br />
-            Request {String(a.requestId)}
-          </p>
-        </details>
-        {a.status === "pending" ? (
-          <div className="approval-actions">
-            {a.request.options.map((o) => (
-              <button
-                key={o.optionId}
-                className={o.kind.startsWith("reject") ? "reject" : "primary"}
-                disabled={busy || !online}
-                onClick={() =>
-                  void act("/approvals/" + a.id + "/decision", {
-                    runId: a.runId,
-                    sessionId: a.sessionId,
-                    optionId: o.optionId,
-                  })
-                }
-              >
-                {o.name}
-                <span className="option-kind">{o.kind}</span>
-              </button>
-            ))}
-          </div>
-        ) : (
-          <p className="small muted">
-            {a.status === "decided"
-              ? `已选择：${a.request.options.find((o) => o.optionId === a.optionId)?.name ?? a.optionId}`
-              : "原执行连接已结束，不能继续使用这张审批单。"}
-          </p>
-        )}
-      </section>
+        approval={a}
+        publisherName={task?.publisherName ?? "任务发起方"}
+        subscriberEnabled={task?.approvalTargets.includes("subscriber") ?? true}
+        busy={busy}
+        online={online}
+        clockOffset={clockOffset}
+        modal={modal}
+        onDecide={(optionId) =>
+          void act("/approvals/" + a.id + "/decision", {
+            runId: a.runId,
+            sessionId: a.sessionId,
+            optionId,
+          })
+        }
+      />
     );
   }
+  const activeApproval = pendingApprovals.find(
+    (approval) => approval.id === activeApprovalId,
+  );
   return (
     <>
       <header className="topbar">
@@ -343,6 +330,7 @@ function App() {
           任务台<span className="version">MVP</span>
         </a>
         <div className="connection">
+          <a href="/approval-tests/">审批测试记录</a>
           <span className={"connection-dot " + (!online ? "offline" : "")} />
           {online ? "本机已连接" : "连接中断"}
           <span className="header-divider" />
@@ -358,14 +346,19 @@ function App() {
             <h1>让任务继续向前。</h1>
             <p className="subtitle">发布、执行与审批，在一张任务列表里。</p>
           </div>
-          <button
-            className="primary new-task"
-            disabled={!boot}
-            onClick={() => setForm(true)}
-          >
-            <Icon name="plus" />
-            发布任务
-          </button>
+          <div className="heading-actions">
+            <a className="secondary replay-entry" href="/approval-tests/">
+              审批回放与测试记录
+            </a>
+            <button
+              className="primary new-task"
+              disabled={!boot}
+              onClick={() => setForm(true)}
+            >
+              <Icon name="plus" />
+              发布任务
+            </button>
+          </div>
         </div>
         {boot?.mode === "fake" && (
           <div className="demo-banner">
@@ -582,6 +575,32 @@ function App() {
                 ))}
               </datalist>
             </label>
+            <fieldset className="approval-targets">
+              <legend>
+                审批对象 <span>可同时选择</span>
+              </legend>
+              <label>
+                <input
+                  type="checkbox"
+                  name="approvalTargets"
+                  value="subscriber"
+                  defaultChecked
+                />
+                订阅者 <span>任务发起方</span>
+              </label>
+              <label className="unavailable">
+                <input
+                  type="checkbox"
+                  name="approvalTargets"
+                  value="third_party"
+                  disabled
+                />
+                第三方 <span>开发中</span>
+              </label>
+              <p className="small muted">
+                用户始终可以决定；留空时由用户审批。
+              </p>
+            </fieldset>
             <label>
               发布人名字
               <input
@@ -669,7 +688,7 @@ function App() {
                     <dd>
                       {detail.runs[0].discovery
                         ? detail.runs[0].discovery.agentInfo?.name.includes(
-                            "Mingting stream-json",
+                            "Mingting",
                           )
                           ? "ACP · ZCode 项目桥接"
                           : "ACP"
@@ -682,7 +701,7 @@ function App() {
                   <dd className="mono">{boot?.workspace}</dd>
                 </div>
               </dl>
-              {detail.approvals.map(approval)}
+              {detail.approvals.map((item) => approval(item))}
               {detail.runs[0] && (
                 <section className="result">
                   <div className="section-title">
@@ -799,6 +818,34 @@ function App() {
               </details>
             </div>
           )}
+        </Modal>
+      )}
+      {activeApproval && (
+        <Modal
+          key={activeApproval.id}
+          label="操作审批"
+          className="approval-dialog"
+          onClose={() => {
+            dismissedApprovals.current.add(activeApproval.id);
+            setActiveApprovalId(undefined);
+          }}
+        >
+          <button
+            className="icon-button approval-close"
+            aria-label="稍后审批"
+            onClick={() => {
+              dismissedApprovals.current.add(activeApproval.id);
+              setActiveApprovalId(undefined);
+            }}
+          >
+            <Icon name="close" />
+          </button>
+          {error && (
+            <p role="alert" className="run-error">
+              {error}
+            </p>
+          )}
+          {approval(activeApproval, true)}
         </Modal>
       )}
     </>

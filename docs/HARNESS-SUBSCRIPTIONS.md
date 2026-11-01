@@ -12,9 +12,9 @@ MCP `publish_task` 可携带 targetHarness。服务对通知和领取同时匹�
 
 ## H3 执行
 
-三个连接器统一通过 ACP v1 执行。Codex 使用官方 Codex ACP；Grok 使用自身 `grok agent stdio`；ZCode 使用项目内 ACP 桥接器驱动原生 `--output-format stream-json`，原生 CLI 0.17.1 提供模型与工具执行。第三方 zcode-acp-server 0.80.1 的握手通过，当前 OAuth 账号在模型注册/请求授权阶段失败，候选依赖已经移除。协议来源在网页详情显示。
+三个连接器统一通过 ACP v1 执行。Codex 使用官方 Codex ACP；Grok 使用自身 `grok agent stdio`；ZCode 使用项目内 ACP 桥接器驱动原生 CLI 0.17.1 的 `zcode app-server --stdio`。桥接器先建立会话并订阅事件，再发送文本任务；原生权限请求转换为 ACP `session/request_permission`，明庭的最终选项按原始响应回传 ZCode。协议来源在网页详情显示。
 
-Grok 固定 plan 模式，仅开放 Read；ZCode 桥接器固定 plan、一次文本回合、Read 工具，保留当前 GLM-5.3 OAuth 账号配置。Codex 沿用 workspace-write 和人工审批。MCP 负责发布/查询身份，连接器 SSE 负责常驻任务通知与身份注册；成功领取后唤起对应 harness，ACP 通知与结果按序回传。当前真实验证范围为问候及读取项目问候文本。
+Grok 固定 plan 模式，仅开放 Read；ZCode 桥接器固定 plan、一次文本回合、Read 工具，使用当前 GLM-5.3 OAuth 账号配置。Codex 沿用 workspace-write 和人工审批。MCP 负责发布/查询身份，连接器 SSE 负责常驻任务通知与身份注册；成功领取后唤起对应 harness，ACP 通知与结果按序回传。ZCode 已完成真实原生工具审批：订阅者同意满十秒后读取文件、倒计时内用户拒绝、用户先拒绝；见[实测记录](../reports/zcode-approval-channel/README.md)。
 
 ## H4 部署
 
@@ -28,7 +28,18 @@ Grok 固定 plan 模式，仅开放 Read；ZCode 桥接器固定 plan、一次�
 
 连接中断后网页会按重连间隔重新建立会话与实时流，临时恢复失败会继续重试；关闭页面或切换任务会清理旧连接（见[恢复任务](task/task-web-reconnect.md)）。
 
+## H6 审批订阅
+
+执行者通过ACP申请审批，任务发起方通过任务专属订阅接收和决定。发布时可多选审批对象，首版启用订阅者、第三方置灰。网页自动弹窗显示两方意见；用户优先，订阅者先决定后保留10秒用户窗口。完整行为、接口与裁决规则见 [审批](APPROVALS.md)，验证见 [任务记录](task/task-approvals.md)。
+
 ## Changelog
+
+| 日期       | 类型 | 内容                                            | 记录                                                     | 状态   |
+| ---------- | ---- | ----------------------------------------------- | -------------------------------------------------------- | ------ |
+| 2026-11-01 | 修复 | H3原生双向审批、项目OAuth请求授权、拒绝状态同步 | [修复报告](../reports/fix/fix-report-20261101-162219.md) | 已完成 |
+| 2026-11-01 | 新增 | H6发起方审批订阅、弹窗与十秒用户优先窗口        | [任务](task/task-approvals.md)                           | 已完成 |
+
+### 历史变更
 
 | 日期       | 类型      | 内容                                               | 记录                                       | 状态                         |
 | ---------- | --------- | -------------------------------------------------- | ------------------------------------------ | ---------------------------- |
@@ -88,9 +99,11 @@ SSE 自报身份的请求头是 `x-harness-name` 和 `x-owner-id`（UUID）。�
 node --import tsx scripts/prepare-zcode-local.ts --source /absolute/path/to/.zcode/v2/credentials.json --builtin /Applications/ZCode.app/Contents/Resources/config/provider/zcode-builtin.json
 ```
 
-脚本从所选 provider 的唯一账户记录提取标识，仅复制对应 OAuth 登录的原始密文，补齐 CLI 所需 identity/auth-source 绑定。输出位于忽略的 `var/zcode-local` 和 `var/zcode-provider.json`；私有凭据文件 0600、目录 0700。脚本拒绝项目外输出、符号链接目标、缺失/多账户和未加密登录输入。输出只含路径和模型名称。原账户文件保持只读，平台仅访问项目内的隔离账户。
+脚本从所选 provider 的唯一账户记录提取标识，复制对应 OAuth 登录的原始密文，补齐 CLI 所需 identity/auth-source 绑定；同时复制源文件中属于该账户的既有原生 Coding Plan 默认项目位置缓存，重复初始化时保留项目副本中的同账户缓存。输出位于忽略的 `var/zcode-local` 和 `var/zcode-provider.json`；私有凭据文件 0600、目录 0700。脚本拒绝项目外输出、符号链接目标、缺失/多账户和未加密登录输入。输出只含路径和模型名称。原账户文件保持只读，平台仅访问项目内的隔离账户。
 
 项目 `.env` 设置 `ZCODE_DATA_BASE_DIR=.../var/zcode-local`，`ZCODE_STORAGE_DIR` 和 `ZCODE_HOME` 指向其 `.zcode`，`ZCODE_SESSION_DB_PATH` 指向其中的会话库；`ZCODE_BUILTIN_PROVIDER_CONFIG_FILE` 指向复制后的内置配置，`ZCODE_PERSONAL_PROVIDER_CONFIG_FILE` 指向 `var/zcode-provider.json`。ZCode 子进程 HOME 同时设为该项目账户根，避免加载用户级 hooks。原始密文使用原客户端的解密材料，通过进程环境传入。
+
+原生 app-server 的账户注册与请求期授权由桥接器宿主提供。首版支持项目内 BigModel 个人 Coding Plan OAuth：读取已有默认项目位置缓存，向 BigModel 官方域名申请短期请求令牌，仅在内存中持有；账户、会话或代次变化会终止旧授权。创建会话和发送任务都携带完整模型及思考级别。原生账户缺少既有位置缓存时，任务返回初始化提示；原生客户端完成初始化后再更新项目副本。其他账户类型、写入工具和通用问答交互留在后续范围。`ZCODE_SESSION_DB_PATH` 可显式指向项目内另一实体路径，用于隔离审批测试。
 
 初始化依赖唯一的个人 Coding Plan 账户记录。隔离 OAuth 过期后，在原客户端完成正常登录，再显式重跑初始化命令更新项目快照。CLI 升级后应重新核对模型注册表和原生输出。本次核对的原安装、全局登录及配置文件哈希一致。
 

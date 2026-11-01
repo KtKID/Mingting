@@ -11,9 +11,11 @@
     "dev": "node --env-file-if-exists=.env --import tsx src/server/main.ts",
     "build": "tsc --noEmit && vite build",
     "start": "node --env-file-if-exists=.env --import tsx src/server/main.ts",
-    "test": "node --import tsx --test tests/*.test.ts",
+    "test": "node --import tsx scripts/run-regression.ts",
+    "test:unit": "node --import tsx --test tests/*.test.ts",
     "test:ui": "playwright test",
-    "check": "npm test && npm run build",
+    "test:approval-e2e": "node --import tsx scripts/run-regression.ts --approval-only",
+    "check": "npm test",
     "publish": "tsx scripts/publish-task.ts",
     "format": "prettier --write src tests scripts *.ts *.json *.md docs/*.md",
     "connector": "node --env-file-if-exists=.env --import tsx src/connector/main.ts"

@@ -39,6 +39,7 @@ export class Store {
       CREATE INDEX IF NOT EXISTS runs_task ON runs(task_id); CREATE INDEX IF NOT EXISTS approvals_run ON approvals(run_id);
       CREATE INDEX IF NOT EXISTS events_run ON events(run_id);
       CREATE TABLE IF NOT EXISTS runtime_metadata (key TEXT PRIMARY KEY,value INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS approval_subscribers (task_id TEXT PRIMARY KEY REFERENCES tasks(id),token_hash TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS deliveries (id INTEGER PRIMARY KEY AUTOINCREMENT,task_id TEXT REFERENCES tasks(id),created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS leases (run_id TEXT PRIMARY KEY REFERENCES runs(id),owner_id TEXT NOT NULL,claim_id TEXT NOT NULL,deadline INTEGER NOT NULL,seq INTEGER NOT NULL DEFAULT 0);`);
   }
@@ -96,6 +97,7 @@ export class Store {
   publish(input: PublishTask): Task {
     const t: Task = {
       ...input,
+      approvalTargets: input.approvalTargets ?? ["subscriber"],
       id: randomUUID(),
       status: "queued",
       currentRunId: null,
@@ -124,6 +126,28 @@ export class Store {
   approval(id: string): Approval | undefined {
     const r = this.db.prepare("SELECT data FROM approvals WHERE id=?").get(id);
     return r ? approvalSchema.parse(JSON.parse(r.data as string)) : undefined;
+  }
+  saveApprovalSubscriber(taskId: string, tokenHash: string) {
+    this.db
+      .prepare("INSERT INTO approval_subscribers VALUES(?,?)")
+      .run(taskId, tokenHash);
+  }
+  approvalSubscriber(taskId: string, tokenHash: string): boolean {
+    return Boolean(
+      this.db
+        .prepare(
+          "SELECT 1 FROM approval_subscribers WHERE task_id=? AND token_hash=?",
+        )
+        .get(taskId, tokenHash),
+    );
+  }
+  pendingApprovals(): Approval[] {
+    return this.db
+      .prepare(
+        "SELECT data FROM approvals WHERE json_extract(data,'$.status')='pending' ORDER BY rowid",
+      )
+      .all()
+      .map((row) => approvalSchema.parse(JSON.parse(String(row.data))));
   }
   approvals(runId: string): Approval[] {
     return this.db
