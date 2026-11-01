@@ -20,6 +20,11 @@ import type { SessionNotification } from "@agentclientprotocol/sdk";
 const now = () => new Date().toISOString();
 export class Store {
   private db: DatabaseSync;
+  onChange = () => {};
+  private inTransaction = false;
+  private changed() {
+    if (!this.inTransaction) this.onChange();
+  }
   constructor(path: string) {
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     const fd = openSync(path, "a", 0o600);
@@ -39,12 +44,16 @@ export class Store {
   }
   transaction<T>(fn: () => T): T {
     this.db.exec("BEGIN IMMEDIATE");
+    this.inTransaction = true;
     try {
       const result = fn();
       this.db.exec("COMMIT");
+      this.inTransaction = false;
+      this.onChange();
       return result;
     } catch (e) {
       this.db.exec("ROLLBACK");
+      this.inTransaction = false;
       throw e;
     }
   }
@@ -82,6 +91,7 @@ export class Store {
         "INSERT INTO tasks(id,data) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data",
       )
       .run(t.id, JSON.stringify(t));
+    this.changed();
   }
   publish(input: PublishTask): Task {
     const t: Task = {
@@ -101,6 +111,7 @@ export class Store {
         "INSERT INTO runs(id,task_id,data) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data",
       )
       .run(r.id, r.taskId, JSON.stringify(r));
+    this.changed();
   }
   saveApproval(a: Approval) {
     this.db
@@ -108,6 +119,7 @@ export class Store {
         "INSERT INTO approvals(id,run_id,data) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data",
       )
       .run(a.id, a.runId, JSON.stringify(a));
+    this.changed();
   }
   approval(id: string): Approval | undefined {
     const r = this.db.prepare("SELECT data FROM approvals WHERE id=?").get(id);

@@ -33,6 +33,10 @@ export const LIMITS = Object.freeze({
   approvalPollMs: 250,
   sweepMs: 250,
   pendingReports: 256,
+  tools: 100,
+  toolChars: 8000,
+  browserSubscribers: 8,
+  browserFlushMs: 40,
 });
 export const harnessNameSchema = z
   .string()
@@ -70,6 +74,14 @@ export const taskSchema = publishTaskSchema.extend({
   updatedAt: z.string(),
   currentRunId: z.string().nullable(),
 });
+export const toolSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  kind: z.string(),
+  status: z.enum(["pending", "in_progress", "completed", "failed"]),
+  input: z.string(),
+  output: z.string(),
+});
 export const runSchema = z.object({
   id: z.string(),
   taskId: z.string(),
@@ -78,6 +90,8 @@ export const runSchema = z.object({
   createdAt: z.string(),
   endedAt: z.string().nullable(),
   output: z.string(),
+  reasoning: z.string().default(""),
+  tools: z.array(toolSchema).default([]),
   error: z.string().nullable(),
   stopReason: z.string().nullable(),
   discovery: z.custom<InitializeResponse>().nullable(),
@@ -107,6 +121,11 @@ export const detailSchema = z.object({
   runs: z.array(runSchema),
   approvals: z.array(approvalSchema),
   events: z.array(eventSchema),
+});
+export const browserSnapshotSchema = z.object({
+  tasks: z.array(taskSchema),
+  harnesses: harnessListSchema,
+  detail: detailSchema.nullable(),
 });
 export const decisionSchema = z
   .object({

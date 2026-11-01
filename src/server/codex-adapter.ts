@@ -18,8 +18,10 @@ export type AdapterConfig = {
   args: string[];
   workspace: string;
   env: NodeJS.ProcessEnv;
-  authMethod?: "api-key";
+  authMethod?: "api-key" | "cached_token";
   mode?: "fake" | "codex";
+  harnessName?: string;
+  sessionMode?: "workspace-write" | "plan" | null;
 };
 export type RunHooks = {
   session(id: string): void;
@@ -52,7 +54,8 @@ export class CodexAdapter {
       stdio: ["pipe", "pipe", "pipe"],
       detached: process.platform !== "win32",
     });
-    console.info(`Codex ACP 已启动 pid=${child.pid}`);
+    const name = this.config.harnessName ?? "Codex";
+    console.info(`${name} ACP 已启动 pid=${child.pid}`);
     // Drain stderr without exposing credential-bearing adapter diagnostics to the web.
     child.stderr.resume();
     child.stdin.on("error", () => {});
@@ -76,7 +79,7 @@ export class CodexAdapter {
       );
     const failed = new Promise<never>((_, reject) => {
       child.once("error", () =>
-        reject(new Error("无法启动 Codex ACP 进程，请检查安装及配置。")),
+        reject(new Error(`无法启动 ${name} ACP 进程，请检查安装及配置。`)),
       );
       child.once("exit", () => reject(new Error("ACP 子进程已退出。")));
     });
@@ -134,6 +137,9 @@ export class CodexAdapter {
         await request(
           connection.agent.request(methods.agent.authenticate, {
             methodId: this.config.authMethod,
+            ...(this.config.authMethod === "cached_token"
+              ? { _meta: { headless: true } }
+              : {}),
           }),
         );
       }
@@ -146,17 +152,21 @@ export class CodexAdapter {
       );
       sessionId = session.sessionId;
       hooks.session(sessionId);
-      // Require the standard human-reviewed workspace sandbox. Refuse unknown/full-access modes.
-      if (
-        !session.modes?.availableModes.some((m) => m.id === "workspace-write")
-      )
-        throw new Error("适配器未提供 workspace-write 模式，已停止。");
-      await request(
-        connection.agent.request(methods.agent.session.setMode, {
-          sessionId,
-          modeId: "workspace-write",
-        }),
-      );
+      // Codex defaults to human-reviewed workspace access. Grok's plan policy is fixed at launch.
+      const mode =
+        this.config.sessionMode === undefined
+          ? "workspace-write"
+          : this.config.sessionMode;
+      if (mode !== null) {
+        if (!session.modes?.availableModes.some((m) => m.id === mode))
+          throw new Error(`适配器未提供 ${mode} 模式，已停止。`);
+        await request(
+          connection.agent.request(methods.agent.session.setMode, {
+            sessionId,
+            modeId: mode,
+          }),
+        );
+      }
       const result = await request(
         connection.agent.request(methods.agent.session.prompt, {
           sessionId,
@@ -172,7 +182,7 @@ export class CodexAdapter {
         /auth|login|credential|unauth|401/i.test(e.message)
       )
         throw new Error(
-          "Codex 需要认证。请在本机完成登录或检查显式 API key 配置后重试。",
+          `${name} 需要认证。请检查项目内登录或显式 API key 配置后重试。`,
         );
       throw e;
     } finally {

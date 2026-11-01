@@ -20,6 +20,7 @@ import {
 } from "../shared/protocol.js";
 import { Store } from "./store.js";
 import { validateAcp } from "./acp-validation.js";
+import { applyProgress } from "./progress.js";
 export class AppError extends Error {
   constructor(
     public status: number,
@@ -45,12 +46,14 @@ export class TaskService {
     const entry = current ?? { identity, connections: 0 };
     entry.connections++;
     this.subscriptions.set(identity.ownerId, entry);
+    this.events.emit("changed");
     let closed = false;
     return () => {
       if (closed) return;
       closed = true;
       if (--entry.connections === 0)
         this.subscriptions.delete(identity.ownerId);
+      this.events.emit("changed");
     };
   }
   harnesses(): HarnessSubscription[] {
@@ -70,7 +73,10 @@ export class TaskService {
       store.unfinished().length ? Date.now() + LIMITS.leaseMs : 0,
     );
     store.recover();
-    this.events.setMaxListeners(LIMITS.subscribers * 2 + 4);
+    this.events.setMaxListeners(
+      (LIMITS.subscribers + LIMITS.browserSubscribers) * 2 + 4,
+    );
+    store.onChange = () => this.events.emit("changed");
     this.timer = setInterval(() => this.sweep(), LIMITS.sweepMs);
     this.timer.unref();
   }
@@ -131,6 +137,8 @@ export class TaskService {
         createdAt: now(),
         endedAt: null,
         output: "",
+        reasoning: "",
+        tools: [],
         error: null,
         stopReason: null,
         discovery: null,
@@ -221,12 +229,7 @@ export class TaskService {
           throw new AppError(400, "ACP 通知无效或会话不匹配");
         if (r.status !== "cancelled") {
           this.store.appendEvent(runId, update.notification);
-          const u = update.notification.update;
-          if (
-            u.sessionUpdate === "agent_message_chunk" &&
-            u.content.type === "text"
-          )
-            r.output = (r.output + u.content.text).slice(-LIMITS.outputChars);
+          applyProgress(r, update.notification);
         }
       } else if (update.type === "finished") {
         if (update.status === "succeeded" && update.stopReason !== "end_turn")

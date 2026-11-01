@@ -1,7 +1,7 @@
 import express from "express";
 import { randomBytes } from "node:crypto";
 import { resolve } from "node:path";
-import { ZodError } from "zod";
+import { z, ZodError } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import {
@@ -132,6 +132,75 @@ export function createPlatform(config: Config) {
   });
   app.get("/api/tasks", (_req, res) => res.json(store.list()));
   app.get("/api/harnesses", (_req, res) => res.json(service.harnesses()));
+  let browserCount = 0;
+  app.get("/api/events", (req, res) => {
+    const taskId = z.string().uuid().optional().parse(req.query.taskId);
+    if (browserCount >= LIMITS.browserSubscribers)
+      throw new AppError(429, "网页实时连接数量超限");
+    browserCount++;
+    let closed = false,
+      blocked = false,
+      dirty = false;
+    let flush: NodeJS.Timeout | undefined;
+    let slow: NodeJS.Timeout | undefined;
+    res.status(200).set({
+      "Content-Type": "text/event-stream",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    res.setTimeout(0);
+    res.flushHeaders();
+    const stop = () => res.end();
+    const write = (text: string) => {
+      if (!res.write(text)) {
+        blocked = true;
+        slow = setTimeout(stop, LIMITS.initMs);
+      }
+    };
+    const send = () => {
+      flush = undefined;
+      if (closed || blocked) return;
+      dirty = false;
+      const snapshot = {
+        tasks: store.list(),
+        harnesses: service.harnesses(),
+        detail: taskId ? (store.detail(taskId) ?? null) : null,
+      };
+      write(`event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n`);
+    };
+    const schedule = () => {
+      dirty = true;
+      if (!closed && !blocked && !flush)
+        flush = setTimeout(send, LIMITS.browserFlushMs);
+    };
+    res.on("drain", () => {
+      blocked = false;
+      clearTimeout(slow);
+      if (dirty) schedule();
+    });
+    const heartbeat = setInterval(() => {
+      const id = req.headers.cookie
+        ?.split(";")
+        .map((c) => c.trim())
+        .find((c) => c.startsWith("task_session="))
+        ?.slice(13);
+      if (!id || (sessions.get(id)?.expires ?? 0) < Date.now()) return stop();
+      if (!closed && !blocked) write(": heartbeat\n\n");
+    }, LIMITS.subscriptionHeartbeatMs);
+    service.events.on("changed", schedule);
+    service.events.on("close", stop);
+    res.once("close", () => {
+      closed = true;
+      browserCount--;
+      clearTimeout(flush);
+      clearTimeout(slow);
+      clearInterval(heartbeat);
+      service.events.off("changed", schedule);
+      service.events.off("close", stop);
+    });
+    // Subscribe before the full SQLite snapshot; reconnect replaces browser state atomically.
+    send();
+  });
   app.post("/api/tasks", (req, res) =>
     res.status(201).json(service.publish(publishTaskSchema.parse(req.body))),
   );

@@ -9,10 +9,8 @@ import { createRoot } from "react-dom/client";
 import { z } from "zod";
 import {
   bootstrapSchema,
-  taskSchema,
-  detailSchema,
   publishResultSchema,
-  harnessListSchema,
+  browserSnapshotSchema,
   type HarnessSubscription,
   type Bootstrap,
   type Task,
@@ -169,45 +167,50 @@ function App() {
   useEffect(() => {
     if (!boot) return;
     let live = true;
-    let timer: ReturnType<typeof setTimeout>;
-    const refresh = async () => {
+    let recovering = false;
+    const source = new EventSource(
+      "/api/events" +
+        (selected ? "?taskId=" + encodeURIComponent(selected) : ""),
+    );
+    source.addEventListener("snapshot", (event: MessageEvent<string>) => {
+      if (!live) return;
       try {
-        const list = await api("/tasks", z.array(taskSchema));
-        const subscribed = await api("/harnesses", harnessListSchema);
-        const d = selected
-          ? await api("/tasks/" + selected, detailSchema)
-          : undefined;
-        if (live) {
-          setTasks(list);
-          setHarnesses(subscribed);
-          setDetail(d);
-          setOnline(true);
-        }
-      } catch (e) {
-        if (live) {
-          setOnline(false);
-          setError((e as Error).message);
-        }
-      } finally {
-        if (live) timer = setTimeout(refresh, 1200);
+        const snapshot = browserSnapshotSchema.parse(JSON.parse(event.data));
+        setTasks(snapshot.tasks);
+        setHarnesses(snapshot.harnesses);
+        setDetail(snapshot.detail ?? undefined);
+        setOnline(true);
+      } catch {
+        setError("实时数据格式无效，请刷新页面");
       }
+    });
+    source.onerror = () => {
+      if (!live) return;
+      setOnline(false);
+      // Refresh expired/restarted server sessions; EventSource handles ordinary reconnects.
+      if (recovering) return;
+      recovering = true;
+      fetch("/api/bootstrap")
+        .then(async (r) => {
+          if (!r.ok) throw new Error("重新连接中");
+          const next = bootstrapSchema.parse(await r.json());
+          if (live && next.csrf !== boot.csrf) setBoot(next);
+        })
+        .catch(() => {})
+        .finally(() => {
+          recovering = false;
+        });
     };
-    void refresh();
     return () => {
       live = false;
-      clearTimeout(timer);
+      source.close();
     };
   }, [boot, selected]);
-  async function refresh() {
-    setTasks(await api("/tasks", z.array(taskSchema)));
-    if (selected) setDetail(await api("/tasks/" + selected, detailSchema));
-  }
   async function act(path: string, body: unknown) {
     setBusy(true);
     setError("");
     try {
       await api(path, z.unknown(), body);
-      await refresh();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -224,7 +227,6 @@ function App() {
       const result = await api("/tasks", publishResultSchema, values);
       setForm(false);
       setSelected(result.taskId);
-      await refresh();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -260,7 +262,7 @@ function App() {
         </div>
         <p className="tool-title">{a.request.toolCall.title ?? "工具操作"}</p>
         <p className="muted small">
-          选项由 Codex ACP 提供。操作是否继续，以执行器返回结果为准。
+          选项由当前执行器提供。操作是否继续，以执行器返回结果为准。
         </p>
         <details>
           <summary>查看操作上下文与原始选项</summary>
@@ -475,7 +477,7 @@ function App() {
             <span>显示 {visible.length} 项 · 最近 200 项任务</span>
             <span>
               <Icon name="clock" />
-              自动刷新
+              实时同步
             </span>
           </footer>
         </section>
@@ -639,6 +641,20 @@ function App() {
                   <dt>指定执行者</dt>
                   <dd>{detail.task.targetHarness ?? "任一可用订阅者"}</dd>
                 </div>
+                {detail.runs[0] && (
+                  <div>
+                    <dt>连接协议</dt>
+                    <dd>
+                      {detail.runs[0].discovery
+                        ? detail.runs[0].discovery.agentInfo?.name.includes(
+                            "Mingting stream-json",
+                          )
+                          ? "ACP · ZCode 项目桥接"
+                          : "ACP"
+                        : "等待协议初始化"}
+                    </dd>
+                  </div>
+                )}
                 <div>
                   <dt>工作区</dt>
                   <dd className="mono">{boot?.workspace}</dd>
@@ -654,7 +670,60 @@ function App() {
                   {detail.runs[0].error && (
                     <p className="run-error">{detail.runs[0].error}</p>
                   )}
-                  <pre>{detail.runs[0].output || "等待执行器返回内容…"}</pre>
+                  <div className="live-label">
+                    {detail.runs[0].endedAt ? "回答" : "回答 · 实时接收中"}
+                  </div>
+                  <pre className="answer-output">
+                    {detail.runs[0].output || "等待执行器返回内容…"}
+                  </pre>
+                  <details className="reasoning" open>
+                    <summary>思考过程</summary>
+                    <pre>
+                      {detail.runs[0].reasoning ||
+                        (detail.runs[0].endedAt
+                          ? "本次执行器未提供思考内容"
+                          : "等待执行器提供思考内容…")}
+                    </pre>
+                  </details>
+                  <section className="tools" aria-label="工具状态">
+                    <h4>
+                      工具状态{" "}
+                      <span className="muted">
+                        {detail.runs[0].tools.length}
+                      </span>
+                    </h4>
+                    {detail.runs[0].tools.length === 0 && (
+                      <p className="small muted">
+                        {detail.runs[0].endedAt
+                          ? "本次没有工具事件"
+                          : "等待工具事件…"}
+                      </p>
+                    )}
+                    {detail.runs[0].tools.map((tool) => (
+                      <article className="tool-card" key={tool.id}>
+                        <div className="tool-heading">
+                          <strong>{tool.title}</strong>
+                          <span className={"tool-status tool-" + tool.status}>
+                            {
+                              {
+                                pending: "等待执行",
+                                in_progress: "执行中",
+                                completed: "已完成",
+                                failed: "失败",
+                              }[tool.status]
+                            }
+                          </span>
+                        </div>
+                        {(tool.input || tool.output) && (
+                          <details>
+                            <summary>输入与输出</summary>
+                            {tool.input && <pre>{tool.input}</pre>}
+                            {tool.output && <pre>{tool.output}</pre>}
+                          </details>
+                        )}
+                      </article>
+                    ))}
+                  </section>
                   <p className="small muted">
                     共 {detail.runs.length} 次执行
                     {detail.runs[0].stopReason

@@ -1,4 +1,54 @@
 import { test, expect } from "@playwright/test";
+test("A4 answer, reasoning and tools arrive before completion; reconnect and refresh preserve one tool", async ({
+  page,
+  context,
+}, info) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  const title = "实时问候 · " + info.project.name;
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "发布任务", exact: true })
+    .first()
+    .click();
+  await page.getByLabel("任务标题").fill(title);
+  await page.getByLabel("任务描述").fill("[stream] 简单问候");
+  await page.getByLabel("发布人名字").fill("ACP 验证");
+  await page
+    .getByRole("dialog", { name: "发布任务" })
+    .getByRole("button", { name: "发布任务", exact: true })
+    .click();
+  const d = page.getByRole("dialog", { name: "任务详情" });
+  await expect(d.locator(".status")).toHaveText("待审批");
+  await expect(d.locator(".answer-output")).toContainText("问候正在生成");
+  await expect(d.locator(".reasoning")).toContainText("先读取问候文本");
+  await expect(d.locator(".tool-card")).toHaveCount(1);
+  await expect(d.locator(".tool-status")).toHaveText("等待执行");
+  await context.setOffline(true);
+  await context.setOffline(false);
+  await expect(page.locator(".connection")).toContainText("本机已连接");
+  await d.getByRole("button", { name: "允许一次 allow_once" }).click();
+  await expect(d.locator(".status")).toHaveText("已完成");
+  await expect(d.locator(".tool-status")).toHaveText("已完成");
+  await expect(d.locator(".answer-output")).toContainText(
+    "selected:allow-once",
+  );
+  await page.reload();
+  await page.getByRole("button", { name: "查看任务：" + title }).click();
+  await expect(d.locator(".reasoning")).toContainText("先读取问候文本");
+  await expect(d.locator(".tool-card")).toHaveCount(1);
+  await expect(d.locator(".tool-status")).toHaveText("已完成");
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: `reports/acp-streaming/ui-${info.project.name}.png`,
+    fullPage: true,
+  });
+  expect(errors).toEqual([]);
+});
 test("publish, list three required fields, inspect permission and approve in browser", async ({
   page,
 }, info) => {

@@ -8,6 +8,7 @@ import {
   PROTOCOL_VERSION,
 } from "@agentclientprotocol/sdk";
 const sessionId = randomUUID();
+const grok = process.env.FAKE_GROK === "1";
 let authenticated = false;
 const modes = {
   currentModeId: "workspace-write",
@@ -18,15 +19,20 @@ const connection = agent({ name: "fake-codex-acp" })
     protocolVersion: PROTOCOL_VERSION,
     agentInfo: { name: "FAKE ACP", version: "test" },
     agentCapabilities: {},
-    authMethods: [{ id: "api-key", name: "Fake API key method" }],
+    authMethods: [{ id: grok ? "cached_token" : "api-key", name: "Fake auth" }],
   }))
   .onRequest(methods.agent.authenticate, (ctx) => {
-    if (ctx.params.methodId !== "api-key")
+    if (
+      ctx.params.methodId !== (grok ? "cached_token" : "api-key") ||
+      (grok && ctx.params._meta?.headless !== true)
+    )
       throw new Error("Unexpected auth method");
     authenticated = true;
     return {};
   })
-  .onRequest(methods.agent.session.new, () => ({ sessionId, modes }))
+  .onRequest(methods.agent.session.new, () =>
+    grok ? { sessionId } : { sessionId, modes },
+  )
   .onRequest(methods.agent.session.setMode, () => ({}))
   .onNotification(methods.agent.session.cancel, () => {})
   .onRequest(methods.agent.session.prompt, async (ctx) => {
@@ -53,6 +59,31 @@ const connection = agent({ name: "fake-codex-acp" })
     const permissionSession = prompt.includes("[bad-session]")
       ? "another-session"
       : sessionId;
+    const streaming = prompt.includes("[stream]");
+    if (streaming) {
+      for (const update of [
+        {
+          sessionUpdate: "agent_thought_chunk" as const,
+          content: { type: "text" as const, text: "先读取问候文本。" },
+        },
+        {
+          sessionUpdate: "agent_message_chunk" as const,
+          content: { type: "text" as const, text: "问候正在生成…" },
+        },
+        {
+          sessionUpdate: "tool_call" as const,
+          toolCallId: "fake-tool-1",
+          title: "读取 HELLO.txt",
+          kind: "read" as const,
+          status: "pending" as const,
+          rawInput: { path: "HELLO.txt" },
+        },
+      ])
+        await ctx.client.notify(methods.client.session.update, {
+          sessionId,
+          update,
+        });
+    }
     const result = await ctx.client.request(
       methods.client.session.requestPermission,
       {
@@ -74,6 +105,26 @@ const connection = agent({ name: "fake-codex-acp" })
       result.outcome.outcome === "selected"
         ? `selected:${result.outcome.optionId}`
         : "cancelled";
+    if (streaming) {
+      await ctx.client.notify(methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: "fake-tool-1",
+          status: "in_progress",
+        },
+      });
+      await new Promise((r) => setTimeout(r, 300));
+      await ctx.client.notify(methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: "fake-tool-1",
+          status: "completed",
+          rawOutput: "你好",
+        },
+      });
+    }
     await ctx.client.notify(methods.client.session.update, {
       sessionId,
       update: {

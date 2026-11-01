@@ -1,9 +1,10 @@
 import { statSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
+import { homedir, userInfo } from "node:os";
 import { createRequire } from "node:module";
 import { CodexAdapter } from "./codex-adapter.js";
-import { CliAdapter } from "./cli-adapter.js";
 import { z } from "zod";
+import { projectDirectory as localRoot, projectPath } from "./local-path.js";
 export const executableHarnessSchema = z.enum(["Codex", "ZCode", "Grok"]);
 export function runtime() {
   const fake = process.env.FAKE_ACP === "1";
@@ -79,55 +80,95 @@ export function runtime() {
     "ZCODE_HOME",
   ])
     if (process.env[key]) nativeEnv[key] = process.env[key];
-  const adapter =
-    !fake && harnessName !== "Codex"
-      ? new CliAdapter({
-          harnessName,
-          workspace,
-          env: nativeEnv,
-          command: harnessName === "Grok" ? "grok" : "zcode",
-          args:
-            harnessName === "Grok"
-              ? [
-                  "--cwd",
-                  workspace,
-                  "--tools",
-                  "",
-                  "--no-subagents",
-                  "--disable-web-search",
-                  "--max-turns",
-                  "1",
-                  "--output-format",
-                  "json",
-                  "-p",
-                ]
-              : [
-                  "--cwd",
-                  workspace,
-                  "--mode",
-                  "plan",
-                  "--workflow-mode",
-                  "disabled",
-                  "--disallowed-tools",
-                  "Bash,Edit,Write,Read,Glob,Grep,WebSearch,WebFetch,Task",
-                  "--json",
-                  "-p",
-                ],
-        })
-      : new CodexAdapter({
-          mode: fake ? "fake" : "codex",
-          command: process.execPath,
-          args: fake
-            ? [
-                "--import",
-                import.meta.resolve("tsx"),
-                resolve("tests/fake-acp.ts"),
-              ]
-            : [require.resolve("@agentclientprotocol/codex-acp")],
-          workspace,
-          authMethod: !fake && auth === "api-key" ? "api-key" : undefined,
-          env: fake ? { PATH: process.env.PATH } : env,
-        });
+  if (!fake) {
+    if (harnessName === "Grok") {
+      const root = localRoot("var/grok-local");
+      Object.assign(nativeEnv, {
+        HOME: localRoot("var/grok-local/home"),
+        GROK_HOME: root,
+        GROK_AUTH_PATH: projectPath(resolve(root, "auth.json")),
+        GROK_CONFIG_PATH: projectPath(resolve(root, "config.toml")),
+        GROK_DISABLE_AUTOUPDATER: "1",
+        GROK_AUTO_UPDATE: "0",
+      });
+    } else if (harnessName === "ZCode") {
+      const root = localRoot(
+        nativeEnv.ZCODE_DATA_BASE_DIR ?? "var/zcode-local",
+      );
+      const state = localRoot(nativeEnv.ZCODE_HOME ?? resolve(root, ".zcode"));
+      Object.assign(nativeEnv, {
+        HOME: root,
+        USERPROFILE: root,
+        XDG_CONFIG_HOME: localRoot(resolve(root, "xdg")),
+        ZCODE_HOME: state,
+        ZCODE_DATA_BASE_DIR: root,
+        ZCODE_STORAGE_DIR: state,
+        ZCODE_SESSION_DB_PATH: projectPath(resolve(state, "cli/db/db.sqlite")),
+        ZCODE_CREDENTIAL_SECRET:
+          process.env.ZCODE_CREDENTIAL_SECRET ??
+          `zcode-credential-fallback:${process.platform}:${homedir()}:${userInfo().username}`,
+      });
+      for (const key of [
+        "ZCODE_BUILTIN_PROVIDER_CONFIG_FILE",
+        "ZCODE_PERSONAL_PROVIDER_CONFIG_FILE",
+      ]) {
+        const path = nativeEnv[key];
+        if (!path)
+          throw new Error("ZCode 需要项目内的 builtin/personal 模型配置");
+        nativeEnv[key] = projectPath(path);
+      }
+    } else {
+      env.CODEX_HOME = localRoot(process.env.CODEX_HOME ?? "var/codex-local");
+      projectPath(resolve(env.CODEX_HOME, "auth.json"));
+      env.HOME = localRoot("var/codex-local/home");
+    }
+  }
+  const adapter = new CodexAdapter({
+    mode: fake ? "fake" : "codex",
+    harnessName,
+    command: !fake && harnessName === "Grok" ? "grok" : process.execPath,
+    args: fake
+      ? ["--import", import.meta.resolve("tsx"), resolve("tests/fake-acp.ts")]
+      : harnessName === "Grok"
+        ? [
+            "--cwd",
+            workspace,
+            "--tools",
+            "Read",
+            "--no-subagents",
+            "--disable-web-search",
+            "--permission-mode",
+            "plan",
+            "agent",
+            "--no-leader",
+            "stdio",
+          ]
+        : harnessName === "ZCode"
+          ? [
+              "--import",
+              import.meta.resolve("tsx"),
+              resolve("scripts/zcode-acp.ts"),
+            ]
+          : [require.resolve("@agentclientprotocol/codex-acp")],
+    workspace,
+    authMethod:
+      !fake && harnessName === "Grok"
+        ? "cached_token"
+        : !fake && harnessName === "Codex" && auth === "api-key"
+          ? "api-key"
+          : undefined,
+    sessionMode:
+      !fake && harnessName === "Grok"
+        ? null
+        : !fake && harnessName === "ZCode"
+          ? "plan"
+          : "workspace-write",
+    env: fake
+      ? { PATH: process.env.PATH }
+      : harnessName === "Codex"
+        ? env
+        : nativeEnv,
+  });
   return {
     workspace,
     adapter,

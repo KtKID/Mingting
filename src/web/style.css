@@ -975,3 +975,60 @@ pre {
     }
   }
 }
+.live-label {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 16px;
+}
+.reasoning {
+  margin: 20px 0;
+}
+.reasoning pre {
+  opacity: 0.8;
+  max-height: 220px;
+  overflow: auto;
+}
+.tools h4 {
+  margin: 20px 0 12px;
+}
+.tool-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  margin: 8px 0;
+  min-width: 0;
+}
+.tool-heading {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: flex-start;
+  font-size: 12px;
+}
+.tool-heading strong {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.tool-status {
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--muted);
+}
+.tool-completed {
+  color: #22835b;
+}
+.tool-failed {
+  color: #c84444;
+}
+.tool-in_progress {
+  color: #567ed9;
+}
+.tool-card details {
+  margin-top: 10px;
+}
+.result pre {
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  max-height: 340px;
+}
