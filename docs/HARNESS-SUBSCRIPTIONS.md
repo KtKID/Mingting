@@ -26,6 +26,8 @@ Grok 固定 plan 模式，仅开放 Read；ZCode 桥接器固定 plan、一次�
 
 原始事件保留最近300项，正文/思考各保留最近64000字符，工具保留最近100项且输入输出各最多8000字符。持久化过程投影随同一运行的有效、有序通知更新；重连/刷新以 SQLite 当前快照替换网页状态，继续使用原有领取租约、取消与旧会话隔离。慢连接合并更新并等待 drain，超时关闭后可重连。
 
+连接中断后网页会按重连间隔重新建立会话与实时流，临时恢复失败会继续重试；关闭页面或切换任务会清理旧连接（见[恢复任务](task/task-web-reconnect.md)）。
+
 ## Changelog
 
 | 日期       | 类型      | 内容                                               | 记录                                       | 状态                         |
@@ -97,3 +99,5 @@ Codex/Grok 首次部署执行 `node --import tsx scripts/prepare-harness-local.t
 ## ACP 实时展示实测
 
 2026-11-01 的[本轮任务](task/task-acp-streaming.md)已完成qdev。经 MCP 指定 Codex/Grok/ZCode，各自产生一个独立运行，读取项目 HELLO.txt 并问候；三项均成功。网页 SSE 在结束前收到正文与工具，Grok/ZCode同时有思考内容；本次Codex思考为空。刷新后快照一致，桌面与手机6项交互通过，自动测试40项通过。[实际链路](../reports/acp-streaming/live-evidence.json)、[接入兼容性及隔离边界](../reports/acp-streaming/compatibility.md)记录协议来源和历史差异。
+
+2026-11-01 H5恢复修复：关闭的实时流与临时会话恢复失败均持续重试；已完成，见[恢复qdev](task/task-web-reconnect.md)。

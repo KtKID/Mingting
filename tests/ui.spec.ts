@@ -162,3 +162,29 @@ test("browser reject decision and cancellation with explicit retry", async ({
   await d.getByRole("button", { name: "拒绝一次 reject_once" }).click();
   await expect(d.locator(".status")).toHaveText("已完成");
 });
+
+for (const bootstrapFails of [false, true]) {
+  test(`reconnect terminal SSE with unchanged session; bootstrap failure=${bootstrapFails}`, async ({
+    page,
+  }) => {
+    let eventRequests = 0,
+      bootstrapRequests = 0;
+    await page.route("**/api/events**", async (route) => {
+      eventRequests++;
+      if (eventRequests === 1) await route.fulfill({ status: 204 });
+      else await route.continue();
+    });
+    await page.route("**/api/bootstrap", async (route) => {
+      bootstrapRequests++;
+      if (bootstrapFails && bootstrapRequests === 2)
+        await route.fulfill({ status: 503, body: "temporary" });
+      else await route.continue();
+    });
+    await page.goto("/");
+    await expect
+      .poll(() => eventRequests, { timeout: 8000 })
+      .toBeGreaterThan(1);
+    await expect(page.locator(".connection")).toContainText("本机已连接");
+    await expect(page.locator(".connection")).toContainText("Codex");
+  });
+}

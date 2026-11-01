@@ -9,6 +9,7 @@ import { createRoot } from "react-dom/client";
 import { z } from "zod";
 import {
   bootstrapSchema,
+  LIMITS,
   publishResultSchema,
   browserSnapshotSchema,
   type HarnessSubscription,
@@ -167,43 +168,64 @@ function App() {
   useEffect(() => {
     if (!boot) return;
     let live = true;
-    let recovering = false;
-    const source = new EventSource(
-      "/api/events" +
-        (selected ? "?taskId=" + encodeURIComponent(selected) : ""),
-    );
-    source.addEventListener("snapshot", (event: MessageEvent<string>) => {
-      if (!live) return;
-      try {
-        const snapshot = browserSnapshotSchema.parse(JSON.parse(event.data));
-        setTasks(snapshot.tasks);
-        setHarnesses(snapshot.harnesses);
-        setDetail(snapshot.detail ?? undefined);
-        setOnline(true);
-      } catch {
-        setError("实时数据格式无效，请刷新页面");
-      }
-    });
-    source.onerror = () => {
-      if (!live) return;
-      setOnline(false);
-      // Refresh expired/restarted server sessions; EventSource handles ordinary reconnects.
-      if (recovering) return;
-      recovering = true;
-      fetch("/api/bootstrap")
-        .then(async (r) => {
-          if (!r.ok) throw new Error("重新连接中");
-          const next = bootstrapSchema.parse(await r.json());
-          if (live && next.csrf !== boot.csrf) setBoot(next);
-        })
-        .catch(() => {})
-        .finally(() => {
-          recovering = false;
-        });
+    let source: EventSource | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const schedule = () => {
+      if (!live || timer) return;
+      timer = setTimeout(() => {
+        timer = undefined;
+        void recover();
+      }, LIMITS.reconnectMs);
     };
+    const recover = async () => {
+      try {
+        const response = await fetch("/api/bootstrap", {
+          signal: AbortSignal.timeout(LIMITS.initMs),
+        });
+        if (!response.ok) throw new Error("重新连接中");
+        const next = bootstrapSchema.parse(await response.json());
+        if (!live) return;
+        if (next.csrf !== boot.csrf) {
+          setBoot(next);
+          return;
+        }
+        connect();
+      } catch {
+        schedule();
+      }
+    };
+    const connect = () => {
+      if (!live) return;
+      const stream = new EventSource(
+        "/api/events" +
+          (selected ? "?taskId=" + encodeURIComponent(selected) : ""),
+      );
+      source = stream;
+      stream.addEventListener("snapshot", (event: MessageEvent<string>) => {
+        if (!live || source !== stream) return;
+        try {
+          const snapshot = browserSnapshotSchema.parse(JSON.parse(event.data));
+          setTasks(snapshot.tasks);
+          setHarnesses(snapshot.harnesses);
+          setDetail(snapshot.detail ?? undefined);
+          setOnline(true);
+        } catch {
+          setError("实时数据格式无效，请刷新页面");
+        }
+      });
+      stream.onerror = () => {
+        if (!live || source !== stream) return;
+        setOnline(false);
+        stream.close();
+        source = undefined;
+        schedule();
+      };
+    };
+    connect();
     return () => {
       live = false;
-      source.close();
+      clearTimeout(timer);
+      source?.close();
     };
   }, [boot, selected]);
   async function act(path: string, body: unknown) {
