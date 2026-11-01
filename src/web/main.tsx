@@ -12,6 +12,8 @@ import {
   taskSchema,
   detailSchema,
   publishResultSchema,
+  harnessListSchema,
+  type HarnessSubscription,
   type Bootstrap,
   type Task,
   type TaskDetail,
@@ -120,6 +122,7 @@ function Modal({
 function App() {
   const [boot, setBoot] = useState<Bootstrap>();
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [harnesses, setHarnesses] = useState<HarnessSubscription[]>([]);
   const [selected, setSelected] = useState<string>();
   const [detail, setDetail] = useState<TaskDetail>();
   const [filter, setFilter] = useState("all");
@@ -170,11 +173,13 @@ function App() {
     const refresh = async () => {
       try {
         const list = await api("/tasks", z.array(taskSchema));
+        const subscribed = await api("/harnesses", harnessListSchema);
         const d = selected
           ? await api("/tasks/" + selected, detailSchema)
           : undefined;
         if (live) {
           setTasks(list);
+          setHarnesses(subscribed);
           setDetail(d);
           setOnline(true);
         }
@@ -212,6 +217,7 @@ function App() {
   async function publish(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const values = Object.fromEntries(new FormData(e.currentTarget));
+    if (values.targetHarness === "") delete values.targetHarness;
     setBusy(true);
     setError("");
     try {
@@ -316,7 +322,9 @@ function App() {
           <span className={"connection-dot " + (!online ? "offline" : "")} />
           {online ? "本机已连接" : "连接中断"}
           <span className="header-divider" />
-          Codex ACP
+          在线：
+          {[...new Set(harnesses.map((h) => h.harnessName))].join(" · ") ||
+            "等待订阅"}
         </div>
       </header>
       <main className="workspace">
@@ -417,6 +425,9 @@ function App() {
                   <div>
                     <strong>{t.title}</strong>
                     <p>{t.description}</p>
+                    {t.targetHarness && (
+                      <p className="small muted">指定 {t.targetHarness}</p>
+                    )}
                   </div>
                 </div>
                 <div className="publisher">
@@ -471,11 +482,11 @@ function App() {
         <footer className="page-footer">
           <span>
             <span className="tiny-square" />
-            一个执行器，一条清晰的任务链路。
+            按身份订阅，按目标执行。
           </span>
           <span>
-            MCP 发布 <span className="muted">→</span> Codex ACP 执行{" "}
-            <span className="muted">→</span> 网页审批
+            发布任务 <span className="muted">→</span> 指定执行者{" "}
+            <span className="muted">→</span> 查看结果
           </span>
         </footer>
       </main>
@@ -500,7 +511,7 @@ function App() {
                 <Icon name="close" />
               </button>
             </div>
-            <p className="muted">提交后进入队列，由 Codex ACP 执行。</p>
+            <p className="muted">选择执行者；目标离线时任务会排队等候。</p>
             {error && (
               <p role="alert" className="run-error">
                 {error}
@@ -525,6 +536,27 @@ function App() {
                 required
                 maxLength={16000}
               />
+            </label>
+            <label>
+              执行者
+              <input
+                name="targetHarness"
+                list="harness-options"
+                placeholder="留空由可用订阅者领取"
+                maxLength={40}
+              />
+              <datalist id="harness-options">
+                {[
+                  ...new Set([
+                    "Codex",
+                    "ZCode",
+                    "Grok",
+                    ...harnesses.map((h) => h.harnessName),
+                  ]),
+                ].map((name) => (
+                  <option key={name} value={name} />
+                ))}
+              </datalist>
             </label>
             <label>
               发布人名字
@@ -598,7 +630,14 @@ function App() {
                 </div>
                 <div>
                   <dt>执行器</dt>
-                  <dd>Codex ACP {boot?.mode === "fake" ? "· 演示" : ""}</dd>
+                  <dd>
+                    {detail.runs[0]?.harnessName ?? "等待领取"}{" "}
+                    {boot?.mode === "fake" ? "· 演示" : ""}
+                  </dd>
+                </div>
+                <div>
+                  <dt>指定执行者</dt>
+                  <dd>{detail.task.targetHarness ?? "任一可用订阅者"}</dd>
                 </div>
                 <div>
                   <dt>工作区</dt>

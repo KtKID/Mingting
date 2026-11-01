@@ -2,6 +2,7 @@ import {
   deliveryEventSchema,
   type DeliveryEvent,
   LIMITS,
+  type HarnessSubscription,
 } from "../shared/protocol.js";
 export function localBase(value: string) {
   const u = new URL(value);
@@ -47,9 +48,19 @@ export async function* subscribe(
   base: string,
   after: number,
   signal: AbortSignal,
+  identity?: HarnessSubscription,
 ): AsyncGenerator<DeliveryEvent> {
   const r = await fetch(localBase(base) + "/connector/events", {
-    headers: { accept: "text/event-stream", "last-event-id": String(after) },
+    headers: {
+      accept: "text/event-stream",
+      "last-event-id": String(after),
+      ...(identity
+        ? {
+            "x-harness-name": identity.harnessName,
+            "x-owner-id": identity.ownerId,
+          }
+        : {}),
+    },
     signal,
   });
   if (!r.ok || !r.body) throw new HttpError(r.status, "无法订阅任务事件");

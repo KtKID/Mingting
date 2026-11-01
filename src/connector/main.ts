@@ -4,9 +4,14 @@ const config = runtime();
 const connector = new TaskConnector(
   process.env.TASK_PLATFORM_URL ?? "http://127.0.0.1:60390",
   config.adapter,
-  (event) => console.log(`收到任务订阅事件 #${event.id} task=${event.taskId}`),
+  (event) =>
+    console.log(
+      `${config.harnessName} 收到任务订阅事件 #${event.id} task=${event.taskId}`,
+    ),
+  config.harnessName,
 );
 connector.start();
+console.log(`${config.harnessName} 订阅连接器 owner=${connector.ownerId}`);
 let stopping = false;
 async function stop() {
   if (stopping) return;

@@ -2,9 +2,11 @@
 
 [English](README.en.md)
 
-连接人与 Agent 的共享任务工作空间。当前版本：MVP 0.2。
+连接人与 Agent 的共享任务工作空间。当前版本：MVP 0.2，含本机 Harness 身份订阅扩展。
 
-本机运行的 TypeScript 任务平台：MCP **只提供 `publish_task`**；发布任务和可重放的 `task.available` 事件一起落入 SQLite；独立 Codex 订阅连接器通过真实 HTTP SSE 接收事件、领取任务，再调用 Codex ACP。React 网页展示标题、任务描述、发布人，以及运行状态和人工审批。
+本机部署地址 **http://127.0.0.1:60390**，MCP 地址 **http://127.0.0.1:60390/mcp**。本机真实验证：Codex、Grok、ZCode 定向问候均完成；ZCode 使用 GLM-5.3，模型、账户绑定与运行目录由项目内隔离配置提供。详细接口、启停方法和证据见 [Harness 订阅](docs/HARNESS-SUBSCRIPTIONS.md) 与 [qdev 任务](docs/task/task-harness-subscriptions.md)。
+
+本机运行的 TypeScript 任务平台：MCP 提供 `publish_task` 与只读 `list_harnesses`；发布任务和可重放的 `task.available` 事件一起落入 SQLite；独立 Harness 订阅连接器通过真实 HTTP SSE 登记身份、接收匹配目标的事件并领取任务；Codex 调用 ACP，Grok/ZCode 调用各自原生 CLI。React 网页展示标题、任务描述、发布人，以及运行状态和人工审批。
 
 任务订阅是本平台的 HTTP 应用协议；Codex 执行使用标准 ACP v1。两者是独立链路。网页仍使用短轮询刷新界面，网页刷新不是任务订阅，也不是执行连接器。
 
@@ -12,15 +14,15 @@
 
 | 功能       | 当前实现                                                                                      |
 | ---------- | --------------------------------------------------------------------------------------------- |
-| 发布任务   | MCP 唯一工具 `publish_task`，接收标题、描述、发布人名字；也可使用网页表单                     |
+| 发布任务   | MCP `publish_task`，接收标题、描述、发布人名字与可选目标 Harness；也可使用网页表单            |
 | 任务列表   | React + TypeScript 网页展示标题、描述、发布人、状态、结果与审批；支持桌面、手机尺寸和明暗主题 |
 | 订阅与领取 | 独立 HTTP SSE 订阅、SQLite 持久事件、断线补发、原子领取和运行所有权                           |
-| 执行连接器 | 一个本机 Codex 连接器，通过开源 Codex ACP 适配器连接 Codex App Server                         |
+| 执行连接器 | 本机 Codex ACP、Grok/ZCode 原生 CLI 连接器；新增 CLI 当前只验证简短文字任务                   |
 | 人工审批   | 展示原始工具上下文与选项；支持允许、拒绝、取消、超时和旧请求失效，不自动批准                  |
 | 恢复与状态 | 心跳租约、顺序幂等回传、进程退出恢复、显式重试；收到通知不等于执行成功                        |
 | 本地持久化 | SQLite 保存任务、运行、审批和有限 ACP 事件；任务通知事件支持重放                              |
 
-当前面向可信本机、单用户、单服务实例、单 Codex 执行器。未包含多 Harness、远端 worker、多用户登录/授权、任务依赖 DAG、聊天工作台、模型路由、自动 Git 合并或公网部署。仓库中的网页界面目前为中文；双语切换只针对 README。
+当前面向可信本机、单用户、单服务实例、全局串行执行。支持本机多 Harness 身份订阅和定向领取。后续范围包括远端 worker、多用户登录/授权、任务依赖 DAG、聊天工作台、模型路由、自动 Git 合并或公网部署。仓库中的网页界面目前为中文；双语切换只针对 README。
 
 已有私有 Site 是仅使用浏览器本地数据的界面演示，不是运行此 Node 后端的地址，也不是 MCP 接入地址。
 
@@ -48,7 +50,7 @@ FAKE_ACP=1 TASK_CONNECTOR=manual npm start
 
 此时可通过 MCP 或网页发布任务。没有执行连接器时任务保持 `queued`，不会被另一个隐藏内部队列直接执行。
 
-终端二，启动唯一类型的 Codex 连接器：
+终端二，以 Codex 身份启动一个连接器：
 
 ```bash
 FAKE_ACP=1 npm run connector
@@ -94,7 +96,7 @@ TASK_WORKSPACE=/absolute/path/to/your/project npm start
 TASK_AUTH=api-key TASK_WORKSPACE=/absolute/path/to/your/project npm start
 ```
 
-连接器检查适配器公布的认证方法后才发送 ACP `authenticate`。密钥不进入网页或任务数据库；适配器自己的登录可能更新你指定的 Codex 配置目录。未配置认证时会明确失败，完成配置后再重试。**本轮没有真实登录或模型调用，真实工具审批仍待用户验证。**
+连接器检查适配器公布的认证方法后才发送 ACP `authenticate`。密钥不进入网页或任务数据库；适配器自己的登录可能更新你指定的 Codex 配置目录。未配置认证时会明确失败，完成配置后再重试。**本次已经复用现有登录完成 Codex 问候；真实工具审批仍需单独验证。**
 
 拆分运行真实连接器时，两边必须使用同一 `TASK_WORKSPACE`、同一 fake/real 模式和相同认证配置。领取响应带有平台固定配置；连接器发现工作区或模式不一致，会报告失败并在启动 ACP 前停止。
 
@@ -111,7 +113,7 @@ TASK_AUTH=api-key TASK_WORKSPACE=/absolute/path/to/your/project npm start
 | `TASK_AUTH`            | `existing` 或明确的 `api-key`                                                  |
 | `CODEX_HOME` / API key | 仅真实执行时由运行环境转发到适配器，不保存到任务数据                           |
 
-## MCP 仍只有发布工具
+## MCP 发布与在线身份查询
 
 Streamable HTTP 入口：`http://127.0.0.1:60390/mcp`。
 
@@ -146,7 +148,7 @@ url = "http://127.0.0.1:60390/mcp"
 
 ### 参数 schema
 
-三个字段都必填，服务端会先去除首尾空白，拒绝空内容和额外字段：
+标题、描述和发布人三个字段必填；可选 `targetHarness` 指定目标身份，目标离线时保持排队。服务端去除首尾空白并校验额外字段：
 
 ```json
 {
@@ -154,7 +156,11 @@ url = "http://127.0.0.1:60390/mcp"
   "properties": {
     "title": { "type": "string", "minLength": 1, "maxLength": 160 },
     "description": { "type": "string", "minLength": 1, "maxLength": 16000 },
-    "publisherName": { "type": "string", "minLength": 1, "maxLength": 80 }
+    "publisherName": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "targetHarness": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,39}$"
+    }
   },
   "required": ["title", "description", "publisherName"],
   "additionalProperties": false
@@ -167,7 +173,7 @@ url = "http://127.0.0.1:60390/mcp"
 npm run publish -- "补充安装说明" "检查 README 并补充启动步骤" "小林"
 ```
 
-MCP 没有增加订阅、审批、任意命令或工作目录工具。发布人名字仅展示，不代表认证身份。相同发布请求会生成不同任务，发布本身不是幂等操作。
+MCP `list_harnesses` 查询在线订阅身份；SSE 负责登记和通知，审批仍走现有网页流程。发布人名字仅展示，不代表认证身份。相同发布请求会生成不同任务，发布本身不是幂等操作。
 
 ## 订阅、领取与回传协议
 
@@ -204,7 +210,7 @@ data: {"id":42,"type":"task.available","taskId":"<UUID>","createdAt":"<ISO时间
 - **重启：**平台恢复时使旧运行和领取失效，旧审批过期，排队任务重新公告。若上次停止时有执行，持久记录最多 8 秒恢复等待期，让旧连接器完成停止后再接受新领取。
 - **运行时界限：**事件流断开会重连，原运行是否继续由独立心跳判断；订阅重连不会自动再开同一运行。租约及报告 fencing 不能撤销已发生的文件改动；这不是业务操作的 exactly-once 或自动回滚保证。
 
-单实例平台、可信本机 Codex 连接器是 MVP 的部署边界。不要同时启动多个服务操作同一个数据库。可有只观察事件的客户端；重复执行连接器测试用于验证领取互斥，不代表加入了多 Harness 调度。
+单实例平台、可信本机连接器是本机部署边界。不要同时启动多个服务操作同一个数据库。可有只观察事件的客户端；重复执行连接器测试用于验证领取互斥，多 Harness 定向在通知及领取两处校验。
 
 ## 现在会不会卡住？
 
@@ -228,7 +234,7 @@ npm run build
 PLAYWRIGHT_CHROMIUM_EXECUTABLE=/absolute/path/to/chromium npm run test:ui
 ```
 
-测试使用真实 HTTP MCP、真实 HTTP SSE、独立连接器进程以及假 ACP 子进程，明确不等于真实 Codex 模型联调。完整事实见 [测试报告](docs/TEST-REPORT.md)。
+测试使用真实 HTTP MCP、真实 HTTP SSE、独立连接器进程以及假 ACP 子进程，真实问候验证另见 [本次 qdev 记录](docs/task/task-harness-subscriptions.md)。历史测试事实见 [测试报告](docs/TEST-REPORT.md)。
 
 源码包不含 node_modules、.env、数据库、凭据或运行数据。既有私有 Sites 页面仍是浏览器本地演示，此次后端更新不会使 Sites 自动具备 Node 子进程能力，也未自动改动或部署它。
 

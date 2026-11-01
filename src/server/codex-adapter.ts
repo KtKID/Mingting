@@ -31,6 +31,7 @@ export type RunHooks = {
     signal: AbortSignal,
   ): Promise<RequestPermissionResponse>;
 };
+export type TaskExecutor = Pick<CodexAdapter, "workspace" | "mode" | "execute">;
 export class CodexAdapter {
   constructor(private config: AdapterConfig) {}
   get workspace() {
@@ -51,6 +52,7 @@ export class CodexAdapter {
       stdio: ["pipe", "pipe", "pipe"],
       detached: process.platform !== "win32",
     });
+    console.info(`Codex ACP 已启动 pid=${child.pid}`);
     // Drain stderr without exposing credential-bearing adapter diagnostics to the web.
     child.stderr.resume();
     child.stdin.on("error", () => {});

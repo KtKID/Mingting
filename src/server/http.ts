@@ -12,6 +12,7 @@ import {
   ownerSchema,
   reportSchema,
   permissionSubmissionSchema,
+  harnessSubscriptionSchema,
   type DeliveryEvent,
 } from "../shared/protocol.js";
 import { Store } from "./store.js";
@@ -130,6 +131,7 @@ export function createPlatform(config: Config) {
     next();
   });
   app.get("/api/tasks", (_req, res) => res.json(store.list()));
+  app.get("/api/harnesses", (_req, res) => res.json(service.harnesses()));
   app.post("/api/tasks", (req, res) =>
     res.status(201).json(service.publish(publishTaskSchema.parse(req.body))),
   );
@@ -171,6 +173,15 @@ export function createPlatform(config: Config) {
       throw new AppError(400, "事件游标无效");
     if (subscriberCount >= LIMITS.subscribers)
       throw new AppError(429, "订阅连接数量超限");
+    const identity =
+      req.headers["x-harness-name"] !== undefined ||
+      req.headers["x-owner-id"] !== undefined
+        ? harnessSubscriptionSchema.parse({
+            harnessName: req.headers["x-harness-name"],
+            ownerId: req.headers["x-owner-id"],
+          })
+        : undefined;
+    const unregister = identity ? service.registerHarness(identity) : () => {};
     subscriberCount++;
     let cursor = after,
       closed = false;
@@ -184,6 +195,13 @@ export function createPlatform(config: Config) {
     const send = (event: DeliveryEvent) => {
       if (closed || event.id <= cursor) return;
       cursor = event.id;
+      const target = store.task(event.taskId)?.targetHarness;
+      if (
+        identity &&
+        target &&
+        target.toLowerCase() !== identity.harnessName.toLowerCase()
+      )
+        return;
       const writable = res.write(
         `id: ${event.id}\nevent: task.available\ndata: ${JSON.stringify(event)}\n\n`,
       );
@@ -198,6 +216,7 @@ export function createPlatform(config: Config) {
     res.once("close", () => {
       closed = true;
       subscriberCount--;
+      unregister();
       clearInterval(heartbeat);
       service.events.off("available", send);
       service.events.off("close", stop);
@@ -250,7 +269,7 @@ export function createPlatform(config: Config) {
       {
         title: "发布任务",
         description:
-          "发布任务到固定 Codex ACP 执行器。publisherName 仅供展示，不代表身份认证。",
+          "发布任务；targetHarness 指定订阅执行者（Codex、ZCode、Grok）。目标离线时保持排队。publisherName 为展示名。",
         inputSchema: publishTaskSchema,
         annotations: {
           readOnlyHint: false,
@@ -277,6 +296,27 @@ export function createPlatform(config: Config) {
             ],
           };
         }
+      },
+    );
+    mcp.registerTool(
+      "list_harnesses",
+      {
+        title: "在线 Harness",
+        description: "查询通过常驻 SSE 订阅登记的在线 harness 身份。",
+        inputSchema: {},
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+      },
+      async () => {
+        const result = { harnesses: service.harnesses() };
+        return {
+          content: [{ type: "text", text: JSON.stringify(result) }],
+          structuredContent: result,
+        };
       },
     );
     const transport = new StreamableHTTPServerTransport({

@@ -5,6 +5,7 @@ const input = publishTaskSchema.parse({
   title: process.argv[2] ?? "补充项目安装说明",
   description: process.argv[3] ?? "检查 README，补充安装和启动步骤。",
   publisherName: process.argv[4] ?? "MCP 示例客户端",
+  ...(process.argv[5] ? { targetHarness: process.argv[5] } : {}),
 });
 const client = new Client({ name: "publish-task-example", version: "0.1.0" });
 try {

@@ -18,6 +18,7 @@ export const LIMITS = Object.freeze({
   acpBytes: 1024 * 1024,
   initMs: 30000,
   runMs: 30 * 60000,
+  cliMs: 90000,
   approvalMs: 10 * 60000,
   killMs: 2000,
   sessions: 64,
@@ -33,11 +34,24 @@ export const LIMITS = Object.freeze({
   sweepMs: 250,
   pendingReports: 256,
 });
+export const harnessNameSchema = z
+  .string()
+  .trim()
+  .regex(/^[A-Za-z][A-Za-z0-9_-]{0,39}$/);
+export const harnessSubscriptionSchema = z
+  .object({
+    ownerId: z.string().uuid(),
+    harnessName: harnessNameSchema,
+  })
+  .strict();
+export const harnessListSchema = z.array(harnessSubscriptionSchema);
+export type HarnessSubscription = z.infer<typeof harnessSubscriptionSchema>;
 export const publishTaskSchema = z
   .object({
     title: z.string().trim().min(1).max(160),
     description: z.string().trim().min(1).max(16000),
     publisherName: z.string().trim().min(1).max(80),
+    targetHarness: harnessNameSchema.optional(),
   })
   .strict();
 export const taskStatusSchema = z.enum([
@@ -68,6 +82,7 @@ export const runSchema = z.object({
   stopReason: z.string().nullable(),
   discovery: z.custom<InitializeResponse>().nullable(),
   ownerId: z.string().nullable().default(null),
+  harnessName: harnessNameSchema.nullable().default(null),
 });
 // ACP payloads are validated by the official SDK at the transport boundary. No handwritten ACP wire schema.
 export const approvalSchema = z.object({

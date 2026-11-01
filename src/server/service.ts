@@ -16,6 +16,7 @@ import {
   type Claim,
   type ConnectorUpdate,
   type DeliveryEvent,
+  type HarnessSubscription,
 } from "../shared/protocol.js";
 import { Store } from "./store.js";
 import { validateAcp } from "./acp-validation.js";
@@ -29,6 +30,32 @@ export class AppError extends Error {
 }
 const now = () => new Date().toISOString();
 export class TaskService {
+  private subscriptions = new Map<
+    string,
+    { identity: HarnessSubscription; connections: number }
+  >();
+  registerHarness(identity: HarnessSubscription) {
+    const current = this.subscriptions.get(identity.ownerId);
+    if (
+      current &&
+      current.identity.harnessName.toLowerCase() !==
+        identity.harnessName.toLowerCase()
+    )
+      throw new AppError(409, "ownerId 已绑定其他 harness");
+    const entry = current ?? { identity, connections: 0 };
+    entry.connections++;
+    this.subscriptions.set(identity.ownerId, entry);
+    let closed = false;
+    return () => {
+      if (closed) return;
+      closed = true;
+      if (--entry.connections === 0)
+        this.subscriptions.delete(identity.ownerId);
+    };
+  }
+  harnesses(): HarnessSubscription[] {
+    return [...this.subscriptions.values()].map((s) => ({ ...s.identity }));
+  }
   private resumeNotBefore = 0;
   private closed = false;
   private timer: NodeJS.Timeout;
@@ -70,6 +97,12 @@ export class TaskService {
     return this.store.transaction(() => {
       const t = this.store.task(taskId);
       if (!t) throw new AppError(404, "任务不存在");
+      const identity = this.subscriptions.get(owner.ownerId)?.identity;
+      if (
+        t.targetHarness &&
+        identity?.harnessName.toLowerCase() !== t.targetHarness.toLowerCase()
+      )
+        throw new AppError(403, "请以目标 harness 身份保持在线订阅后领取");
       if (t.currentRunId) {
         const old = this.store.run(t.currentRunId)!;
         const lease = this.store.lease(old.id);
@@ -102,6 +135,7 @@ export class TaskService {
         stopReason: null,
         discovery: null,
         ownerId: owner.ownerId,
+        harnessName: identity?.harnessName ?? null,
       };
       t.status = "running";
       t.currentRunId = run.id;

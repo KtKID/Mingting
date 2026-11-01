@@ -11,7 +11,7 @@ import {
   type Claim,
   type ConnectorUpdate,
 } from "../shared/protocol.js";
-import { CodexAdapter } from "../server/codex-adapter.js";
+import type { TaskExecutor } from "../server/codex-adapter.js";
 import { subscribe, post, localBase, HttpError } from "./transport.js";
 export class TaskConnector {
   readonly ownerId = randomUUID();
@@ -25,8 +25,9 @@ export class TaskConnector {
   readonly received: DeliveryEvent[] = [];
   constructor(
     private base: string,
-    private adapter: CodexAdapter,
+    private adapter: TaskExecutor,
     private onEvent?: (event: DeliveryEvent) => void,
+    readonly harnessName = "Codex",
   ) {
     this.base = localBase(base);
   }
@@ -45,6 +46,7 @@ export class TaskConnector {
           this.base,
           this.cursor,
           AbortSignal.any([this.stop.signal, this.connection.signal]),
+          { ownerId: this.ownerId, harnessName: this.harnessName },
         )) {
           this.cursor = event.id;
           this.received.push(event);
