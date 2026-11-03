@@ -18,7 +18,10 @@
     "check": "npm test",
     "publish": "tsx scripts/publish-task.ts",
     "format": "prettier --write src tests scripts *.ts *.json *.md docs/*.md",
-    "connector": "node --env-file-if-exists=.env --import tsx src/connector/main.ts"
+    "connector": "node --env-file-if-exists=.env --import tsx src/connector/main.ts",
+    "test:ci:unit": "c8 node --import tsx --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=reports/ci/evidence/unit.xml tests/*.test.ts",
+    "test:ci:approval": "c8 --clean=false npm run test:approval-e2e",
+    "test:ci:report": "node --import tsx scripts/ci-report.ts"
   },
   "keywords": [],
   "author": "",
@@ -41,6 +44,8 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
+    "c8": "12.0.0",
+    "fast-xml-parser": "5.11.2",
     "prettier": "^3.9.10",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",

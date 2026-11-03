@@ -1,5 +1,7 @@
 # 明庭
 
+每次 PR 的自动测试、用例明细、改动覆盖率与附件归档见 [CI 测试与报告](docs/CI-TESTING.md)。
+
 [English](README.en.md)
 
 审批入口位于任务台“发布任务”旁：[审批回放与测试记录](http://127.0.0.1:60390/approval-tests/)。`npm test` / `npm run check` 默认自动运行全部十条审批用例，双方选择、结果填写与每轮归档全部自动完成；页面可选择历史批次。审批回放默认使用仓库中的合成测试数据。原始录制和回归报告保存在本机。已有原始录制的工作区可以通过 `APPROVAL_RECORDING_PATH=reports/approval-e2e/recording.json npm test` 运行本机录制。

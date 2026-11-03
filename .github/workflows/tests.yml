@@ -1,0 +1,115 @@
+name: Tests and change coverage
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      base_ref:
+        description: Comparison base for this run
+        default: origin/main
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests and report
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      checks: write
+    env:
+      CI_REPORT_DIR: reports/ci
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          cache: npm
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - name: Prepare report and comparison baseline
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE: ${{ github.event.before }}
+          MANUAL_BASE: ${{ inputs.base_ref }}
+        run: |
+          mkdir -p reports/ci/evidence
+          requested="${PR_BASE:-${PUSH_BASE:-${MANUAL_BASE:-HEAD}}}"
+          if [[ "$requested" =~ ^0+$ ]]; then requested=HEAD; fi
+          base=$(git merge-base "$requested" HEAD)
+          echo "BASE_SHA=$base" >> "$GITHUB_ENV"
+          echo "HEAD_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          git diff "$base" HEAD > reports/ci/evidence/change.patch
+      - name: Install project and coverage tools
+        id: dependencies
+        run: |
+          npm ci --ignore-scripts
+          python -m pip install diff-cover==11.0.0
+          npx --no-install playwright install --with-deps chromium
+      - name: Unit tests and source coverage
+        id: unit
+        run: npm run test:ci:unit 2>&1 | tee reports/ci/evidence/unit.log
+      - name: Build and recorded approval regression
+        id: approval
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: npm run test:ci:approval 2>&1 | tee reports/ci/evidence/approval.log
+      - name: Changed-line coverage and uncovered locations
+        id: diff
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: |
+          diff-cover reports/ci/evidence/coverage/cobertura-coverage.xml \
+            --compare-branch "$BASE_SHA" \
+            --format markdown:reports/ci/evidence/diff-coverage.md \
+            2>&1 | tee reports/ci/evidence/diff.log
+      - name: Generate the unified test report
+        id: report
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        env:
+          UNIT_OUTCOME: ${{ steps.unit.outcome }}
+          APPROVAL_OUTCOME: ${{ steps.approval.outcome }}
+          DIFF_OUTCOME: ${{ steps.diff.outcome }}
+        run: npm run test:ci:report
+      - name: Publish case results to Checks
+        if: ${{ !cancelled() && hashFiles('reports/ci/evidence/results.xml') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        uses: dorny/test-reporter@4a2e97665d5fa767581ef38eca97b9694bd4eef4 # v2
+        with:
+          name: Test cases
+          path: reports/ci/evidence/results.xml
+          reporter: jest-junit
+          list-tests: all
+          use-actions-summary: "false"
+          fail-on-empty: "true"
+      - name: Publish summary and collect replay evidence
+        if: always()
+        run: |
+          mkdir -p reports/ci/evidence
+          if [[ ! -f reports/ci/test-report.md ]]; then
+            printf '# Test report incomplete\n\nSee the failed setup or report-generation step.\n' > reports/ci/test-report.md
+          fi
+          cat reports/ci/test-report.md >> "$GITHUB_STEP_SUMMARY"
+          git ls-files -z --others --exclude-standard reports/approval-e2e/runs > reports/ci/evidence/replay-files.list
+          if [[ -s reports/ci/evidence/replay-files.list ]]; then
+            tar --null -T reports/ci/evidence/replay-files.list -czf reports/ci/evidence/approval-e2e.tar.gz
+          fi
+      - name: Archive report and original evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mingting-tests-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: reports/ci/
+          retention-days: 30
+          if-no-files-found: error

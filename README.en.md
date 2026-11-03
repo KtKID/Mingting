@@ -1,5 +1,7 @@
 # Local harness subscription extension (2026-11-01)
 
+Pull-request tests, case results, changed-line coverage and archived evidence are described in [CI testing and reports](docs/CI-TESTING.md).
+
 The local runtime now supports named Codex, Grok and ZCode SSE connectors. `publish_task` accepts an optional `targetHarness`; `list_harnesses` returns online identities. Offline targets remain queued. Codex, Grok and ZCode completed real targeted greeting tasks. ZCode now uses GLM-5.3 with an explicit project-local encrypted login snapshot and account binding; original global files remain unchanged. Current deployment and qdev evidence: [Harness subscriptions](docs/HARNESS-SUBSCRIPTIONS.md). The original 0.2 documentation below describes the preceding single-Codex baseline.
 
 # Mingting
