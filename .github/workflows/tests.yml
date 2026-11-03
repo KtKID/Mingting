@@ -93,23 +93,35 @@ jobs:
           list-tests: all
           use-actions-summary: "false"
           fail-on-empty: "true"
-      - name: Publish summary and collect replay evidence
+      - name: Collect replay evidence
         if: always()
         run: |
           mkdir -p reports/ci/evidence
           if [[ ! -f reports/ci/test-report.md ]]; then
             printf '# Test report incomplete\n\nSee the failed setup or report-generation step.\n' > reports/ci/test-report.md
           fi
-          cat reports/ci/test-report.md >> "$GITHUB_STEP_SUMMARY"
           git ls-files -z --others --exclude-standard reports/approval-e2e/runs > reports/ci/evidence/replay-files.list
           if [[ -s reports/ci/evidence/replay-files.list ]]; then
             tar --null -T reports/ci/evidence/replay-files.list -czf reports/ci/evidence/approval-e2e.tar.gz
           fi
       - name: Archive report and original evidence
+        id: artifact
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: mingting-tests-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: mingting-tests-${{ env.HEAD_SHA || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: reports/ci/
           retention-days: 30
           if-no-files-found: error
+      - name: Publish the unified report summary
+        if: always()
+        env:
+          ARTIFACT_URL: ${{ steps.artifact.outputs.artifact-url }}
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync, appendFileSync } from 'node:fs';
+          const url = process.env.ARTIFACT_URL || `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+          const report = readFileSync('reports/ci/test-report.md', 'utf8');
+          const summary = report.replace(/\]\(evidence\/[^)]+\)/g, `](${url})`);
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, `[下载本批报告与原始附件](${url})\n\n${summary}`);
+          JS
