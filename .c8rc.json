@@ -1,0 +1,9 @@
+{
+  "all": true,
+  "include": ["src/**/*.ts", "src/**/*.tsx", "scripts/**/*.ts"],
+  "exclude": ["**/*.d.ts"],
+  "extension": [".ts", ".tsx"],
+  "reporter": ["cobertura", "json", "json-summary", "text-summary"],
+  "reports-dir": "reports/ci/evidence/coverage",
+  "temp-directory": ".cache/ci-v8"
+}

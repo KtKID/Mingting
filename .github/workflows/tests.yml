@@ -1,0 +1,82 @@
+name: Tests and change coverage
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      base_ref:
+        description: Comparison base for this run
+        default: origin/main
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests and report
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI_REPORT_DIR: reports/ci
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          cache: npm
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - name: Prepare report and comparison baseline
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE: ${{ github.event.before }}
+          MANUAL_BASE: ${{ inputs.base_ref }}
+        run: |
+          mkdir -p reports/ci/evidence
+          requested="${PR_BASE:-${PUSH_BASE:-${MANUAL_BASE:-HEAD}}}"
+          if [[ "$requested" =~ ^0+$ ]]; then requested=HEAD; fi
+          base=$(git merge-base "$requested" HEAD)
+          echo "BASE_SHA=$base" >> "$GITHUB_ENV"
+          echo "HEAD_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          git diff "$base" HEAD > reports/ci/evidence/change.patch
+      - name: Install project and coverage tools
+        id: dependencies
+        run: |
+          npm ci --ignore-scripts
+          python -m pip install diff-cover==11.0.0
+          npx --no-install playwright install --with-deps chromium
+      - name: Unit tests and source coverage
+        id: unit
+        run: npm run test:ci:unit > reports/ci/evidence/unit.log 2>&1
+      - name: Build and recorded approval regression
+        id: approval
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: npm run test:ci:approval > reports/ci/evidence/approval.log 2>&1
+      - name: Changed-line coverage and uncovered locations
+        id: diff
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: |
+          diff-cover reports/ci/evidence/coverage/cobertura-coverage.xml \
+            --compare-branch "$BASE_SHA" \
+            --format markdown:reports/ci/evidence/diff-coverage.md \
+            > reports/ci/evidence/diff.log 2>&1
+      - name: Generate the unified test report
+        id: report
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        env:
+          UNIT_OUTCOME: ${{ steps.unit.outcome }}
+          APPROVAL_OUTCOME: ${{ steps.approval.outcome }}
+          DIFF_OUTCOME: ${{ steps.diff.outcome }}
+        run: npm run test:ci:report > reports/ci/evidence/report.log 2>&1
