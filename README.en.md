@@ -4,6 +4,8 @@ The local runtime now supports named Codex, Grok and ZCode SSE connectors. `publ
 
 # Mingting
 
+[Experimental chat wakeups](docs/CHAT-WAKEUPS.md) include durable approval and completion events, ACP session recovery, and replay checks. Wakeups in the active desktop chat still require end-to-end verification.
+
 ZCode now uses a bidirectional bridge from ACP v1 to its native `app-server --stdio` protocol. Real Codex-published tasks verified subscriber approval after a ten-second user window, a user rejection during that window, and user-first rejection. The current ZCode profile uses project-local BigModel OAuth Coding Plan credentials and read-only tools. See the verification record（本机归档）.
 
 [简体中文](README.md)

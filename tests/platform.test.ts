@@ -106,6 +106,9 @@ test("real HTTP MCP publish → SQLite → ACP child permission → browser API 
         "list_harnesses",
         "wait_for_approval",
         "submit_approval_decision",
+        "get_wakeup_status",
+        "get_task_wakeups",
+        "acknowledge_task_wakeup",
       ],
     );
     assert.equal(

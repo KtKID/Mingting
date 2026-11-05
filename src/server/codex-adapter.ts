@@ -46,6 +46,33 @@ export class CodexAdapter {
     text: string,
     signal: AbortSignal,
     hooks: RunHooks,
+    existingSessionId?: string,
+  ): Promise<string> {
+    return this.run(text, signal, hooks, existingSessionId);
+  }
+  async probeSession(sessionId: string, signal: AbortSignal) {
+    let discovery: InitializeResponse | undefined;
+    await this.run(
+      undefined,
+      signal,
+      {
+        session: () => {},
+        discovery: (value) => {
+          discovery = value;
+        },
+        update: () => {},
+        permission: async () => ({ outcome: { outcome: "cancelled" } }),
+      },
+      sessionId,
+    );
+    if (!discovery) throw new Error("ACP 能力响应缺失");
+    return discovery;
+  }
+  private async run(
+    text: string | undefined,
+    signal: AbortSignal,
+    hooks: RunHooks,
+    existingSessionId?: string,
   ): Promise<string> {
     signal.throwIfAborted();
     const child = spawn(this.config.command, this.config.args, {
@@ -144,14 +171,30 @@ export class CodexAdapter {
         );
       }
       // Existing login is the default. API-key authentication requires an explicit server-side opt-in.
-      const session = await request(
-        connection.agent.request(methods.agent.session.new, {
-          cwd: this.config.workspace,
-          mcpServers: [],
-        }),
-      );
+      if (existingSessionId && !init.agentCapabilities?.loadSession)
+        throw new Error("ACP 适配器缺少原会话加载能力");
+      const session = await (async () => {
+        if (existingSessionId)
+          return {
+            ...(await request(
+              connection.agent.request(methods.agent.session.load, {
+                sessionId: existingSessionId,
+                cwd: this.config.workspace,
+                mcpServers: [],
+              }),
+            )),
+            sessionId: existingSessionId,
+          };
+        return request(
+          connection.agent.request(methods.agent.session.new, {
+            cwd: this.config.workspace,
+            mcpServers: [],
+          }),
+        );
+      })();
       sessionId = session.sessionId;
       hooks.session(sessionId);
+      if (text === undefined) return "ready";
       // Codex defaults to human-reviewed workspace access. Grok's plan policy is fixed at launch.
       const mode =
         this.config.sessionMode === undefined

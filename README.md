@@ -8,6 +8,8 @@
 
 本机部署地址 **http://127.0.0.1:60390**，MCP 地址 **http://127.0.0.1:60390/mcp**。本机真实验证：Codex、Grok、ZCode 定向问候均完成；ZCode 使用 GLM-5.3，模型、账户绑定与运行目录由项目内隔离配置提供。详细接口、启停方法和证据见 [Harness 订阅](docs/HARNESS-SUBSCRIPTIONS.md) 与 [qdev 任务](docs/task/task-harness-subscriptions.md)。
 
+[当前聊天事件唤醒实验](docs/CHAT-WAKEUPS.md)包含聊天绑定、审批和完成事件持久化、ACP 原会话恢复及回放核对。桌面当前会话的实际唤醒仍待验收。
+
 本机运行的 TypeScript 任务平台：MCP 提供发布、在线身份查询和审批订阅；发布任务和可重放的 `task.available` 事件一起落入 SQLite；独立 Harness 订阅连接器通过真实 HTTP SSE 登记身份、接收匹配目标的事件并领取任务；三个执行器统一通过 ACP 接入，ZCode 由项目桥接器连接原生 `app-server --stdio` 双向通道。React 网页展示标题、任务描述、发布人，以及运行状态和人工审批。
 
 任务订阅使用本平台的 HTTP 应用协议，执行与权限请求使用 ACP v1。网页通过同源SSE同步任务、审批和执行过程。审批发起方通过独立的任务专属订阅接收权限请求。Codex 发起、ZCode 执行的真实审批已通过十秒回退与用户优先测试，见验证记录（本机归档）。

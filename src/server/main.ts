@@ -3,14 +3,19 @@ import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import { createPlatform } from "./http.js";
 import { runtime, executableHarnessSchema } from "./runtime.js";
+import { configuredCodexWakeups } from "./codex-wakeup.js";
 const port = Number(process.env.PORT ?? 60390);
 if (!Number.isInteger(port) || port < 60001 || port > 65535)
   throw new Error("PORT 必须在 60001–65535 之间");
 const config = runtime();
+const wakeupDelivery = await configuredCodexWakeups();
+if (wakeupDelivery)
+  console.log("聊天唤醒宿主", JSON.stringify(wakeupDelivery.status()));
 const platform = createPlatform({
   dbPath: resolve(process.env.TASK_DB ?? "var/tasks.sqlite"),
   workspace: config.workspace,
   mode: config.mode,
+  wakeupDelivery,
 });
 const server = createServer(platform.app);
 server.requestTimeout = 30000;

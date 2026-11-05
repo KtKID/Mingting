@@ -17,6 +17,12 @@ import {
   type DeliveryEvent,
 } from "../shared/protocol.js";
 import type { SessionNotification } from "@agentclientprotocol/sdk";
+import {
+  wakeupEventSchema,
+  wakeupTargetSchema,
+  type WakeupEvent,
+  type WakeupTarget,
+} from "../shared/task-wakeup.js";
 const now = () => new Date().toISOString();
 export class Store {
   private db: DatabaseSync;
@@ -41,7 +47,10 @@ export class Store {
       CREATE TABLE IF NOT EXISTS runtime_metadata (key TEXT PRIMARY KEY,value INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS approval_subscribers (task_id TEXT PRIMARY KEY REFERENCES tasks(id),token_hash TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS deliveries (id INTEGER PRIMARY KEY AUTOINCREMENT,task_id TEXT REFERENCES tasks(id),created_at TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS leases (run_id TEXT PRIMARY KEY REFERENCES runs(id),owner_id TEXT NOT NULL,claim_id TEXT NOT NULL,deadline INTEGER NOT NULL,seq INTEGER NOT NULL DEFAULT 0);`);
+      CREATE TABLE IF NOT EXISTS leases (run_id TEXT PRIMARY KEY REFERENCES runs(id),owner_id TEXT NOT NULL,claim_id TEXT NOT NULL,deadline INTEGER NOT NULL,seq INTEGER NOT NULL DEFAULT 0);
+      CREATE TABLE IF NOT EXISTS task_wakeup_targets (task_id TEXT PRIMARY KEY REFERENCES tasks(id),data TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS task_wakeup_events (id TEXT PRIMARY KEY,task_id TEXT NOT NULL REFERENCES tasks(id),data TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS task_wakeup_status ON task_wakeup_events(json_extract(data,'$.status'));`);
   }
   transaction<T>(fn: () => T): T {
     this.db.exec("BEGIN IMMEDIATE");
@@ -95,8 +104,9 @@ export class Store {
     this.changed();
   }
   publish(input: PublishTask): Task {
+    const { wakeup, ...taskInput } = input;
     const t: Task = {
-      ...input,
+      ...taskInput,
       approvalTargets: input.approvalTargets ?? ["subscriber"],
       id: randomUUID(),
       status: "queued",
@@ -105,6 +115,10 @@ export class Store {
       updatedAt: now(),
     };
     this.saveTask(t);
+    if (wakeup)
+      this.db
+        .prepare("INSERT INTO task_wakeup_targets VALUES(?,?)")
+        .run(t.id, JSON.stringify(wakeup));
     return t;
   }
   saveRun(r: Run) {
@@ -113,6 +127,7 @@ export class Store {
         "INSERT INTO runs(id,task_id,data) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data",
       )
       .run(r.id, r.taskId, JSON.stringify(r));
+    if (r.endedAt) this.enqueueWakeup("task.completed", r.taskId, r.id, null);
     this.changed();
   }
   saveApproval(a: Approval) {
@@ -121,7 +136,73 @@ export class Store {
         "INSERT INTO approvals(id,run_id,data) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data",
       )
       .run(a.id, a.runId, JSON.stringify(a));
+    if (a.status === "pending")
+      this.enqueueWakeup("approval.requested", a.taskId, a.runId, a.id);
     this.changed();
+  }
+  wakeupTarget(taskId: string): WakeupTarget | undefined {
+    const row = this.db
+      .prepare("SELECT data FROM task_wakeup_targets WHERE task_id=?")
+      .get(taskId);
+    return row
+      ? wakeupTargetSchema.parse(JSON.parse(String(row.data)))
+      : undefined;
+  }
+  private enqueueWakeup(
+    type: WakeupEvent["type"],
+    taskId: string,
+    runId: string,
+    approvalId: string | null,
+  ) {
+    const target = this.wakeupTarget(taskId);
+    if (!target) return;
+    const event = wakeupEventSchema.parse({
+      id: `${type}:${approvalId ?? runId}`,
+      type,
+      taskId,
+      runId,
+      approvalId,
+      target,
+      createdAt: now(),
+      status: "pending",
+      attempts: 0,
+      deliveredAt: null,
+      receipt: null,
+      error: null,
+      resumedTurnId: null,
+      acknowledgedAt: null,
+    });
+    this.db
+      .prepare("INSERT OR IGNORE INTO task_wakeup_events VALUES(?,?,?)")
+      .run(event.id, taskId, JSON.stringify(event));
+  }
+  taskWakeups(taskId?: string): WakeupEvent[] {
+    const rows = taskId
+      ? this.db
+          .prepare(
+            "SELECT data FROM task_wakeup_events WHERE task_id=? ORDER BY rowid",
+          )
+          .all(taskId)
+      : this.db
+          .prepare("SELECT data FROM task_wakeup_events ORDER BY rowid")
+          .all();
+    return rows.map((row) =>
+      wakeupEventSchema.parse(JSON.parse(String(row.data))),
+    );
+  }
+  pendingWakeups(): WakeupEvent[] {
+    return this.db
+      .prepare(
+        "SELECT data FROM task_wakeup_events WHERE json_extract(data,'$.status')='pending' ORDER BY rowid",
+      )
+      .all()
+      .map((row) => wakeupEventSchema.parse(JSON.parse(String(row.data))));
+  }
+  saveWakeup(event: WakeupEvent) {
+    const valid = wakeupEventSchema.parse(event);
+    this.db
+      .prepare("UPDATE task_wakeup_events SET data=? WHERE id=? AND task_id=?")
+      .run(JSON.stringify(valid), valid.id, valid.taskId);
   }
   approval(id: string): Approval | undefined {
     const r = this.db.prepare("SELECT data FROM approvals WHERE id=?").get(id);

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { wakeupTargetSchema } from "./task-wakeup.js";
 import type {
   InitializeResponse,
   RequestPermissionRequest,
@@ -64,6 +65,7 @@ export const publishTaskSchema = z
     publisherName: z.string().trim().min(1).max(80),
     targetHarness: harnessNameSchema.optional(),
     approvalTargets: approvalTargetsSchema.optional(),
+    wakeup: wakeupTargetSchema.optional(),
   })
   .strict();
 export const taskStatusSchema = z.enum([
@@ -75,7 +77,7 @@ export const taskStatusSchema = z.enum([
   "cancelled",
   "interrupted",
 ]);
-export const taskSchema = publishTaskSchema.extend({
+export const taskSchema = publishTaskSchema.omit({ wakeup: true }).extend({
   approvalTargets: approvalTargetsSchema.default(["subscriber"]),
   id: z.string(),
   status: taskStatusSchema,
@@ -175,6 +177,7 @@ export const approvalSubscriptionSchema = z.object({
 export const publishResultSchema = z.object({
   taskId: z.string(),
   approvalSubscription: approvalSubscriptionSchema.optional(),
+  wakeup: wakeupTargetSchema.optional(),
 });
 export const subscriberDecisionSchema = approvalSubscriptionSchema
   .extend({

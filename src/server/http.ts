@@ -21,12 +21,15 @@ import {
 import { Store } from "./store.js";
 import { TaskService, AppError } from "./service.js";
 import { readApprovalHistory } from "./approval-history.js";
+import type { WakeupDelivery } from "./task-wakeup.js";
+import { wakeupAcknowledgementSchema } from "../shared/task-wakeup.js";
 
 type Config = {
   dbPath: string;
   workspace: string;
 
   mode?: "fake" | "codex";
+  wakeupDelivery?: WakeupDelivery;
 };
 export function createPlatform(config: Config) {
   const store = new Store(config.dbPath);
@@ -34,6 +37,7 @@ export function createPlatform(config: Config) {
     store,
     config.workspace,
     config.mode ?? "codex",
+    config.wakeupDelivery,
   );
   const app = express();
   app.disable("x-powered-by");
@@ -510,6 +514,83 @@ export function createPlatform(config: Config) {
         try {
           service.decideSubscriber(input);
           const result = { ok: true };
+          return {
+            content: [{ type: "text", text: JSON.stringify(result) }],
+            structuredContent: result,
+          };
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    );
+    mcp.registerTool(
+      "get_wakeup_status",
+      {
+        description:
+          "检查当前平台的聊天事件唤醒宿主是否已接通。通过后可在发布时绑定当前threadId和originTurnId，发布后结束回合。",
+        inputSchema: {},
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+      },
+      async () => {
+        const result = service.wakeupStatus();
+        return {
+          content: [{ type: "text", text: JSON.stringify(result) }],
+          structuredContent: result,
+        };
+      },
+    );
+    mcp.registerTool(
+      "get_task_wakeups",
+      {
+        description:
+          "使用发起方审批订阅凭据读取此任务的聊天目标、持久事件、投递及恢复确认记录。",
+        inputSchema: approvalSubscriptionSchema,
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+      },
+      async (input) => {
+        try {
+          const result = service.taskWakeups(input);
+          return {
+            content: [{ type: "text", text: JSON.stringify(result) }],
+            structuredContent: result,
+          };
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    );
+    mcp.registerTool(
+      "acknowledge_task_wakeup",
+      {
+        description:
+          "收到平台事件并恢复新回合后，记录当前threadId、turnId与事件ID；两类事件各自确认独立回合。真实验收还需宿主聊天记录。",
+        inputSchema: approvalSubscriptionSchema
+          .extend(wakeupAcknowledgementSchema.shape)
+          .strict(),
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+      },
+      async (input) => {
+        try {
+          const { taskId, subscriptionToken, ...ack } = input;
+          const result = service.acknowledgeWakeup(
+            { taskId, subscriptionToken },
+            ack,
+          );
           return {
             content: [{ type: "text", text: JSON.stringify(result) }],
             structuredContent: result,

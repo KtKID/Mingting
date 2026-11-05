@@ -25,6 +25,11 @@ import { Store } from "./store.js";
 import { validateAcp } from "./acp-validation.js";
 import { applyProgress } from "./progress.js";
 import { approvalPrompt } from "../shared/approval.js";
+import { WakeupDispatcher, type WakeupDelivery } from "./task-wakeup.js";
+import {
+  wakeupAcknowledgementSchema,
+  type WakeupAcknowledgement,
+} from "../shared/task-wakeup.js";
 export class AppError extends Error {
   constructor(
     public status: number,
@@ -67,22 +72,30 @@ export class TaskService {
   private closed = false;
   private timer: NodeJS.Timeout;
   readonly events = new EventEmitter();
+  readonly wakeups?: WakeupDispatcher;
   constructor(
     public store: Store,
     private workspace: string,
     private mode: "fake" | "codex",
+    wakeupDelivery?: WakeupDelivery,
   ) {
     this.resumeNotBefore = Math.max(
       store.quarantineUntil(),
       store.unfinished().length ? Date.now() + LIMITS.leaseMs : 0,
     );
     store.recover();
+    if (wakeupDelivery)
+      this.wakeups = new WakeupDispatcher(store, wakeupDelivery);
     this.events.setMaxListeners(
       (LIMITS.subscribers + LIMITS.browserSubscribers) * 2 + 4,
     );
-    store.onChange = () => this.events.emit("changed");
+    store.onChange = () => {
+      this.events.emit("changed");
+      this.wakeups?.kick();
+    };
     this.timer = setInterval(() => this.sweep(), LIMITS.sweepMs);
     this.timer.unref();
+    this.wakeups?.kick();
   }
   private available(event: DeliveryEvent) {
     this.events.emit("available", event);
@@ -90,6 +103,14 @@ export class TaskService {
   publish(raw: PublishTask) {
     if (this.closed) throw new AppError(503, "服务正在停止");
     const input = publishTaskSchema.parse(raw);
+    if (input.wakeup) {
+      if (!(input.approvalTargets ?? ["subscriber"]).includes("subscriber"))
+        throw new AppError(400, "聊天唤醒需要发起方审批订阅");
+      if (!this.wakeupStatus().available)
+        throw new AppError(503, "聊天唤醒宿主尚未接通；请先完成宿主接入验证。");
+      if (!this.wakeups?.delivery.accepts(input.wakeup))
+        throw new AppError(403, "聊天目标超出宿主预检确认的授权范围");
+    }
     if (input.approvalTargets?.includes("third_party"))
       throw new AppError(400, "第三方审批正在开发中");
     if (this.store.countActive() >= LIMITS.queue)
@@ -107,12 +128,62 @@ export class TaskService {
     this.available(result.event);
     return {
       taskId: result.task.id,
+      ...(input.wakeup ? { wakeup: input.wakeup } : {}),
       ...(result.task.approvalTargets.includes("subscriber")
         ? {
             approvalSubscription: { taskId: result.task.id, subscriptionToken },
           }
         : {}),
     };
+  }
+  wakeupStatus() {
+    return (
+      this.wakeups?.delivery.status() ?? {
+        available: false,
+        transport: "unconfigured",
+        error: "聊天唤醒宿主尚未配置",
+      }
+    );
+  }
+  taskWakeups(subscription: ApprovalSubscription) {
+    this.requireSubscriber(subscription);
+    return {
+      target: this.store.wakeupTarget(subscription.taskId) ?? null,
+      events: this.store.taskWakeups(subscription.taskId),
+    };
+  }
+  acknowledgeWakeup(
+    subscription: ApprovalSubscription,
+    raw: WakeupAcknowledgement,
+  ) {
+    this.requireSubscriber(subscription);
+    const input = wakeupAcknowledgementSchema.parse(raw);
+    const event = this.store
+      .taskWakeups(subscription.taskId)
+      .find((item) => item.id === input.eventId);
+    if (
+      !event ||
+      event.target.threadId !== input.threadId ||
+      event.target.originTurnId === input.turnId
+    )
+      throw new AppError(409, "唤醒确认需要目标聊天的独立新回合");
+    if (event.status === "acknowledged" && event.resumedTurnId === input.turnId)
+      return { ok: true };
+    if (event.status !== "delivered")
+      throw new AppError(409, "请先核对宿主投递状态与已确认回合");
+    if (
+      this.store
+        .taskWakeups(subscription.taskId)
+        .some((item) => item.resumedTurnId === input.turnId)
+    )
+      throw new AppError(409, "审批与完成需要分别恢复独立回合");
+    this.store.saveWakeup({
+      ...event,
+      status: "acknowledged",
+      resumedTurnId: input.turnId,
+      acknowledgedAt: now(),
+    });
+    return { ok: true };
   }
   private tokenHash(token: string) {
     return createHash("sha256").update(token).digest("hex");
@@ -600,6 +671,7 @@ export class TaskService {
     this.closed = true;
     clearInterval(this.timer);
     this.events.emit("close");
+    await this.wakeups?.close();
     this.store.transaction(() => {
       const unfinished = this.store.unfinished();
       if (unfinished.length)
