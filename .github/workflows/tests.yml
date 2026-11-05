@@ -23,9 +23,6 @@ jobs:
     name: Tests and report
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    permissions:
-      contents: read
-      checks: write
     env:
       CI_REPORT_DIR: reports/ci
     steps:
@@ -62,11 +59,11 @@ jobs:
           npx --no-install playwright install --with-deps chromium
       - name: Unit tests and source coverage
         id: unit
-        run: npm run test:ci:unit 2>&1 | tee reports/ci/evidence/unit.log
+        run: npm run test:ci:unit > reports/ci/evidence/unit.log 2>&1
       - name: Build and recorded approval regression
         id: approval
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
-        run: npm run test:ci:approval 2>&1 | tee reports/ci/evidence/approval.log
+        run: npm run test:ci:approval > reports/ci/evidence/approval.log 2>&1
       - name: Changed-line coverage and uncovered locations
         id: diff
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
@@ -74,7 +71,7 @@ jobs:
           diff-cover reports/ci/evidence/coverage/cobertura-coverage.xml \
             --compare-branch "$BASE_SHA" \
             --format markdown:reports/ci/evidence/diff-coverage.md \
-            2>&1 | tee reports/ci/evidence/diff.log
+            > reports/ci/evidence/diff.log 2>&1
       - name: Generate the unified test report
         id: report
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
@@ -82,46 +79,4 @@ jobs:
           UNIT_OUTCOME: ${{ steps.unit.outcome }}
           APPROVAL_OUTCOME: ${{ steps.approval.outcome }}
           DIFF_OUTCOME: ${{ steps.diff.outcome }}
-        run: npm run test:ci:report
-      - name: Publish case results to Checks
-        if: ${{ !cancelled() && hashFiles('reports/ci/evidence/results.xml') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
-        uses: dorny/test-reporter@4a2e97665d5fa767581ef38eca97b9694bd4eef4 # v2
-        with:
-          name: Test cases
-          path: reports/ci/evidence/results.xml
-          reporter: jest-junit
-          list-tests: all
-          use-actions-summary: "false"
-          fail-on-empty: "true"
-      - name: Collect replay evidence
-        if: always()
-        run: |
-          mkdir -p reports/ci/evidence
-          if [[ ! -f reports/ci/test-report.md ]]; then
-            printf '# Test report incomplete\n\nSee the failed setup or report-generation step.\n' > reports/ci/test-report.md
-          fi
-          git ls-files -z --others --exclude-standard reports/approval-e2e/runs > reports/ci/evidence/replay-files.list
-          if [[ -s reports/ci/evidence/replay-files.list ]]; then
-            tar --null -T reports/ci/evidence/replay-files.list -czf reports/ci/evidence/approval-e2e.tar.gz
-          fi
-      - name: Archive report and original evidence
-        id: artifact
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: mingting-tests-${{ env.HEAD_SHA || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: reports/ci/
-          retention-days: 30
-          if-no-files-found: error
-      - name: Publish the unified report summary
-        if: always()
-        env:
-          ARTIFACT_URL: ${{ steps.artifact.outputs.artifact-url }}
-        run: |
-          node --input-type=module <<'JS'
-          import { readFileSync, appendFileSync } from 'node:fs';
-          const url = process.env.ARTIFACT_URL || `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
-          const report = readFileSync('reports/ci/test-report.md', 'utf8');
-          const summary = report.replace(/\]\(evidence\/[^)]+\)/g, `](${url})`);
-          appendFileSync(process.env.GITHUB_STEP_SUMMARY, `[下载本批报告与原始附件](${url})\n\n${summary}`);
-          JS
+        run: npm run test:ci:report > reports/ci/evidence/report.log 2>&1

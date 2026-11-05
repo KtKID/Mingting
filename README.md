@@ -1,6 +1,6 @@
 # 明庭
 
-每次 PR 的自动测试、用例明细、改动覆盖率与附件归档见 [CI 测试与报告](docs/CI-TESTING.md)。
+PR 自动检查与本机测试报告的用法见 [CI 测试与报告](docs/CI-TESTING.md)。
 
 [English](README.en.md)
 

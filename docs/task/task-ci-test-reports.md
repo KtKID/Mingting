@@ -3,6 +3,8 @@
 > 功能文档：[CI 测试与报告](../CI-TESTING.md)
 > spec: 无，功能来源见功能文档
 > 范围：Actions 自动执行、用例发布、diff coverage、Artifacts
+
+> 后续隐私调整。GitHub 保留自动检查状态，详细报告和原始证据在本机保存。下文记录初版试点。
 > tech-design: 本文件②
 > 创建：2026-11-03
 > 状态：试点通过，草稿 PR 待审阅
@@ -33,7 +35,7 @@ D1：Actions 负责编排与阶段结果留存，测试失败后继续发布报�
 - 本地实际执行：后端 87/87、构建通过、审批浏览器 10/10，合计 97 条通过、0 失败、0 跳过。
 - 改动行覆盖：报告脚本 311/315（98.7%）；未覆盖 182–183、193–194 为报告读取异常的处理分支。整文件分支 67/77（87.01%），原始数据与口径在报告附件。
 - 工具检查：TypeScript、改动文件 Prettier、actionlint 与 diff 检查通过。
-- GitHub 实测：[PR #1](https://github.com/KtKID/Mingting/pull/1)、[首轮运行](https://github.com/KtKID/Mingting/actions/runs/41615472697)成功，87 后端 + 10 审批用例通过，Checks 发布成功，报告/原始证据 artifact 已上传，保存期 30 天。
+- GitHub 实测：[PR #1](https://github.com/KtKID/Mingting/pull/1)、首轮运行（批次 41615472697，本机归档）成功，87 后端 + 10 审批用例通过，Checks 发布成功，报告/原始证据 artifact 已上传，保存期 30 天。
 - x-verify-spec：对账通过。本轮对照用户范围、D1–D4、6 项新增用例与沿用回归，读取统一报告及原始 JUnit/覆盖数据，97 项结果、比较基线、未覆盖位置和实际 CI 状态一致。
 - x-verify-tech：通过。本轮实际执行 TypeScript、格式、actionlint、后端/浏览器与 diff-cover；云端复跑覆盖 Ubuntu/Node 24，D1–D4 的执行、失败留存与发布路径可定位。整文件分支与浏览器前端覆盖边界按报告列明。
 - 未决：草稿 PR 审阅及合入 main；默认分支保护规则按后续项目门禁约定设置。

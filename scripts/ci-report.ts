@@ -260,7 +260,7 @@ export async function generateReport(
     "- [Node 原始 JUnit](evidence/unit.xml) / [审批原始 JUnit](evidence/approval.xml)",
     "- [覆盖率原始数据](evidence/coverage/coverage-final.json) / [Cobertura](evidence/coverage/cobertura-coverage.xml)",
     "- [后端输出](evidence/unit.log) / [审批与构建输出](evidence/approval.log) / [diff-cover 输出](evidence/diff.log)",
-    "- [审批逐项回放附件](evidence/approval-e2e.tar.gz)；本地执行可直接查看 reports/approval-e2e/runs/ 下本次归档。",
+    "- 本机审批回放位于 reports/approval-e2e/runs/。",
     "",
   ].join("\n");
   await mkdir(resolve(directory, "evidence"), { recursive: true });
