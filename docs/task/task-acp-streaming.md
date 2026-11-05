@@ -122,7 +122,7 @@ D1 改为 Codex 官方适配器 / Grok 原生 ACP / ZCode 项目 ACP 桥接原�
 ### 公共验收回执
 
 - x-verify-spec：qdev对账通过。已核对五段唯一结构、用户本轮范围、H3/H4修改和H5新增、旧正文与设计调整、A1–A11/Z5/R回指、全部开发/网页/真实证据、文件范围和结论。读取red.txt、zcode-batch-red.log、check.log、build.log、ui.log、verify-tech-tests.log、global前后摘要、live-evidence.json与browser-live.json。新增7/修改1/回归32、网页新增2/回归4与执行40/6一致；A1/A5复用3真实任务；没有遗漏、悬空或未决交付项。本阶段复查已有记录，未重跑测试，结论仅为记录对账。
-- x-verify-tech：通过，适用D1–D5与R1/R2/R4–R7共11项，R3跨语言生成按纯TS范围不适用。独立运行8/8专项、strict tsc、格式检查；复查最后前端变更后的6/6网页、真实3任务与代码链路。完整证据与审查边界见[技术回执](../../reports/acp-streaming/verify-tech.md)。
+- x-verify-tech：通过，适用D1–D5与R1/R2/R4–R7共11项，R3跨语言生成按纯TS范围不适用。独立运行8/8专项、strict tsc、格式检查；复查最后前端变更后的6/6网页、真实3任务与代码链路。完整证据与审查边界见技术回执（本机归档）。
 - 功能正文H3–H5、changelog与本task双向关联、状态一致。当前交付范围为真实问候/只读工具和网页实时展示；性能压力、复杂任务、ZCode权限升级继续按范围边界保留。历史setting文件差异已如实披露，当前隔离前后哈希一致。
 
 qdev完成：本轮功能、变更与用例对应，开发验证及回归通过，交付对账通过，技术验收通过。

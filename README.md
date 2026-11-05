@@ -2,7 +2,7 @@
 
 [English](README.en.md)
 
-审批入口位于任务台“发布任务”旁：[审批回放与测试记录](http://127.0.0.1:60390/approval-tests/)。`npm test` / `npm run check` 默认自动运行全部十条审批用例，双方选择、结果填写与每轮归档全部自动完成；页面可选择历史批次。原始真实数据和60390可见回放保留。[使用与证据](reports/approval-e2e/README.md)。
+审批入口位于任务台“发布任务”旁：[审批回放与测试记录](http://127.0.0.1:60390/approval-tests/)。`npm test` / `npm run check` 默认自动运行全部十条审批用例，双方选择、结果填写与每轮归档全部自动完成；页面可选择历史批次。审批回放默认使用仓库中的合成测试数据。原始录制和回归报告保存在本机。已有原始录制的工作区可以通过 `APPROVAL_RECORDING_PATH=reports/approval-e2e/recording.json npm test` 运行本机录制。
 
 连接人与 Agent 的共享任务工作空间。当前版本：MVP 0.2，含本机 Harness 身份订阅扩展。
 
@@ -10,7 +10,7 @@
 
 本机运行的 TypeScript 任务平台：MCP 提供发布、在线身份查询和审批订阅；发布任务和可重放的 `task.available` 事件一起落入 SQLite；独立 Harness 订阅连接器通过真实 HTTP SSE 登记身份、接收匹配目标的事件并领取任务；三个执行器统一通过 ACP 接入，ZCode 由项目桥接器连接原生 `app-server --stdio` 双向通道。React 网页展示标题、任务描述、发布人，以及运行状态和人工审批。
 
-任务订阅使用本平台的 HTTP 应用协议，执行与权限请求使用 ACP v1。网页通过同源SSE同步任务、审批和执行过程。审批发起方通过独立的任务专属订阅接收权限请求。Codex 发起、ZCode 执行的真实审批已通过十秒回退与用户优先测试，见[验证记录](reports/zcode-approval-channel/README.md)。
+任务订阅使用本平台的 HTTP 应用协议，执行与权限请求使用 ACP v1。网页通过同源SSE同步任务、审批和执行过程。审批发起方通过独立的任务专属订阅接收权限请求。Codex 发起、ZCode 执行的真实审批已通过十秒回退与用户优先测试，见验证记录（本机归档）。
 
 ## 当前功能与支持范围
 

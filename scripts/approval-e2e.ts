@@ -112,7 +112,7 @@ if (process.argv[2] === "control") {
     runId: randomUUID(),
     startedAt: new Date().toISOString(),
     platform: base,
-    kind: "真实数据回放 · 平台与网页端到端",
+    kind: "审批回放 · 平台与网页端到端",
     sources: recording.sources,
     stopped: false,
     error: "",
@@ -211,7 +211,7 @@ if (process.argv[2] === "control") {
         name: "publish_task",
         arguments: {
           title: target.title,
-          description: `真实数据回放测试：${target.title}。复用 ZCode 真实 Read 审批与结果；本轮文件操作及模型响应使用录制数据。原始任务：${recording.sources[0]?.taskId}。`,
+          description: `审批回放测试：${target.title}。本轮文件操作及模型响应使用回放输入。`,
           publisherName: "Codex",
           targetHarness: "ZCode-Replay",
           approvalTargets: ["subscriber"],

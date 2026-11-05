@@ -97,11 +97,10 @@ function Report() {
       </header>
       <section className="intro">
         <div>
-          <p className="eyebrow">真实录制 · 平台回放</p>
+          <p className="eyebrow">审批回放</p>
           <h1>审批端到端测试</h1>
           <p>
-            复用真实 ZCode
-            请求与响应，自动走完审批。选择批次和用例，查看实际操作、自动判定和完整结果。
+            使用固定输入自动走完审批。选择批次和用例，查看实际操作、自动判定和完整结果。
           </p>
         </div>
         <div className="score">
@@ -149,7 +148,7 @@ function Report() {
         <span>{history?.runs.length ?? 0} 个批次已保留</span>
       </div>
       <p className="boundary">
-        模型和文件工具使用真实录制；MCP、订阅连接器、ACP、数据库、网页操作与十秒裁决实际执行。原始真实运行记录保留完整。
+        模型和文件工具使用回放输入。MCP、订阅连接器、ACP、数据库、网页操作和十秒裁决实际执行。
       </p>
       {batch && (
         <div className="batch-meta">
@@ -356,7 +355,11 @@ function Report() {
         </article>
       </div>
       <details className="sources">
-        <summary>真实数据来源 · {report?.sources.length ?? 0} 份录制</summary>
+        <summary>
+          {report?.sources.length
+            ? `本机录制 · ${report.sources.length} 份原始记录`
+            : "审批回放输入"}
+        </summary>
         {report?.sources.map((s) => (
           <p key={s.taskId}>
             <b>{s.taskId}</b>

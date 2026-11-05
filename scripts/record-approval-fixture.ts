@@ -2,7 +2,12 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { detailSchema } from "../src/shared/protocol.js";
-import { recordingPath, recordingSchema } from "./approval-replay-data.js";
+import { recordingSchema } from "./approval-replay-data.js";
+
+const recordingPath = new URL(
+  "../reports/zcode-approval-channel/recording.json",
+  import.meta.url,
+);
 
 const files = [
   "live-success",

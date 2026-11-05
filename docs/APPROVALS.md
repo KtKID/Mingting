@@ -60,11 +60,11 @@ ACP v1 保留原始 `toolCall` 和 `options`。执行者可在 ACP 请求的 `_m
 
 实现及验证记录：[任务记录](task/task-approvals.md)。协议依据：[ACP v1 工具权限请求](https://agentclientprotocol.com/protocol/v1/tool-calls#requesting-permission)。自动化验证使用真实HTTP/MCP、SQLite、浏览器及通过官方SDK通信的ACP测试子进程；模型推理和文件操作使用模拟结果。
 
-ZCode 的真实接入使用项目 ACP 桥接器与原生 `app-server --stdio` 双向通信。原生权限请求、原始选项响应和拒绝后的工具状态均按同一会话回传；重复请求复用同一审批，取消和无效选项按拒绝收口。当前运行范围为 plan 模式的 Read 工具、项目内 BigModel OAuth Coding Plan 账户。[真实测试](../reports/zcode-approval-channel/README.md)覆盖十秒后采纳 Codex 同意、倒计时内用户拒绝、用户先拒绝；真实 ZCode 模型与工具参与执行。
+ZCode 的真实接入使用项目 ACP 桥接器与原生 `app-server --stdio` 双向通信。原生权限请求、原始选项响应和拒绝后的工具状态均按同一会话回传；重复请求复用同一审批，取消和无效选项按拒绝收口。当前运行范围为 plan 模式的 Read 工具、项目内 BigModel OAuth Coding Plan 账户。真实测试（本机归档）覆盖十秒后采纳 Codex 同意、倒计时内用户拒绝、用户先拒绝；真实 ZCode 模型与工具参与执行。
 
 | 日期       | 类型 | 内容                                                       | 记录                                                     | 状态   |
 | ---------- | ---- | ---------------------------------------------------------- | -------------------------------------------------------- | ------ |
 | 2026-11-01 | 新增 | A5默认十条自动回归、批次留存与明显入口                     | [任务](task/task-approval-default-regression.md)         | 已完成 |
 | 2026-11-01 | 新增 | A4真实数据复用、十条可见回放和HTML记录                     | [任务](task/task-approval-replay.md)                     | 已完成 |
-| 2026-11-01 | 修复 | ZCode 原生权限请求与 ACP 双向转换、拒绝后工具状态收口      | [修复报告](../reports/fix/fix-report-20261101-162219.md) | 已完成 |
+| 2026-11-01 | 修复 | ZCode 原生权限请求与 ACP 双向转换、拒绝后工具状态收口      | 修复报告（本机归档） | 已完成 |
 | 2026-11-01 | 新增 | A1任务审批对象与发起方订阅、A2自动弹窗、A3用户优先十秒窗口 | [任务](task/task-approvals.md)                           | 已完成 |

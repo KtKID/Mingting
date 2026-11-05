@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "sources": [],
+  "request": {
+    "sessionId": "00000000-0000-4000-8000-000000000001",
+    "toolCall": {
+      "toolCallId": "fixture-read",
+      "kind": "read",
+      "status": "pending",
+      "title": "Read · 操作审批",
+      "rawInput": { "file_path": "fixture/HELLO.txt", "limit": 1 }
+    },
+    "options": [
+      { "optionId": "allow_once", "name": "Allow once", "kind": "allow_once" },
+      {
+        "optionId": "allow_project",
+        "name": "Always allow in this project",
+        "kind": "allow_always"
+      },
+      { "optionId": "deny", "name": "Deny", "kind": "reject_once" }
+    ]
+  },
+  "before": [
+    {
+      "sessionUpdate": "agent_thought_chunk",
+      "content": { "type": "text", "text": "等待审批后读取测试输入。" }
+    },
+    {
+      "sessionUpdate": "tool_call",
+      "toolCallId": "fixture-read",
+      "kind": "read",
+      "status": "pending",
+      "title": "Read · 操作审批"
+    }
+  ],
+  "allowed": [
+    {
+      "sessionUpdate": "tool_call_update",
+      "toolCallId": "fixture-read",
+      "status": "completed"
+    },
+    {
+      "sessionUpdate": "agent_message_chunk",
+      "content": { "type": "text", "text": "ZCODE_APPROVAL_CHANNEL_OK" }
+    }
+  ],
+  "denied": [
+    {
+      "sessionUpdate": "tool_call_update",
+      "toolCallId": "fixture-read",
+      "status": "failed"
+    },
+    {
+      "sessionUpdate": "agent_message_chunk",
+      "content": { "type": "text", "text": "审批拒绝已停止" }
+    }
+  ],
+  "allowedOutput": "ZCODE_APPROVAL_CHANNEL_OK",
+  "deniedOutput": "审批拒绝已停止"
+}

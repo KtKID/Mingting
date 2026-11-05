@@ -47,7 +47,7 @@ D3：`src/server/cli-adapter.ts` 桥接原生单轮 CLI 并校验最终 JSON，�
 
 D4：`src/server/main.ts` 按 TASK_HARNESSES 启动独立连接器；`scripts/local-service.mjs` 项目内后台启停；`scripts/publish-task.ts` 增加可选目标；`src/web/main.tsx` 显示在线身份、目标、真实执行身份，表单可选目标；`index.html` 更新平台标题；`.gitignore` 增加项目缓存；`.env.example` 补配置。README 中英文、PROGRESS 和功能文档同步。
 
-专项测试在 `tests/routing.test.ts`、`tests/cli-adapter.test.ts`。既有 `platform.test.ts` 仅修改工具发现预期，使其包含新增只读工具；其余断言保留。来源/实际文件基线：[source-baseline.json](../../reports/subscription-smoke/source-baseline.json)。依赖清单及 lock 内容与 HEAD 相同。实现范围与②一致，额外的页面标题改动属于身份展示。
+专项测试在 `tests/routing.test.ts`、`tests/cli-adapter.test.ts`。既有 `platform.test.ts` 仅修改工具发现预期，使其包含新增只读工具；其余断言保留。来源/实际文件基线：source-baseline.json（本机归档）。依赖清单及 lock 内容与 HEAD 相同。实现范围与②一致，额外的页面标题改动属于身份展示。
 
 ## ⑤ 验证结果
 
@@ -71,7 +71,7 @@ D4：`src/server/main.ts` 按 TASK_HARNESSES 启动独立连接器；`scripts/lo
 | T7a      | 项目服务 stop → status → start                                      | 停止成功、已停止状态、重新启动三个身份，通过                             | service-lifecycle.log                                    |
 | T7b      | 浏览器打开平台，查看 Grok/ZCode 详情，重启后刷新                    | 在线三身份、发布者 Codex、目标/实际执行者与结果一致，通过                | platform-results.png / grok-result.png / zcode-error.png |
 
-以下原 21 个服务回归用例逐一运行；R1 的工具列表预期按本次新增接口调整，其余 20 项沿用。完整执行记录为 [final-check.log](../../reports/subscription-smoke/final-check.log)：
+以下原 21 个服务回归用例逐一运行；R1 的工具列表预期按本次新增接口调整，其余 20 项沿用。完整执行记录为 final-check.log（本机归档）：
 
 | 回归                  | 操作与应看到的结果                                          | 实际                 |
 | --------------------- | ----------------------------------------------------------- | -------------------- |
@@ -97,7 +97,7 @@ D4：`src/server/main.ts` 按 TASK_HARNESSES 启动独立连接器；`scripts/lo
 | R20 错误工作区/模式   | 连接器在启动 ACP 前报告失败                                 | 通过                 |
 | R21 顽固 ACP 子进程   | 取消强制清理，后续队列可继续                                | 通过                 |
 
-既有网页回归也运行全量四项，见 [ui-tests.log](../../reports/subscription-smoke/ui-tests.log)：
+既有网页回归也运行全量四项，见 ui-tests.log（本机归档）：
 
 | 回归                       | 操作与应看到的结果                                           | 实际 |
 | -------------------------- | ------------------------------------------------------------ | ---- |
@@ -118,8 +118,8 @@ D4：`src/server/main.ts` 按 TASK_HARNESSES 启动独立连接器；`scripts/lo
 
 ### 公共验收回执
 
-- x-verify-spec：依据本文①、功能正文 H1–H4、实现前 README 快照、③用例以及逐例执行记录进行九项对账。结构、来源、映射、变更索引和测试记录可核查；ZCode 成功执行的预期仍有实际失败，整体 **对账未完成**。具体回执见 [verify-spec.md](../../reports/subscription-smoke/verify-spec.md)。
-- x-verify-tech：独立运行 7 项专项及 tsc，审查 D1–D4/R1–R7；路由、数据归属、配置和清理项通过；ZCode 成功返回 JSON 的真实兼容性 **未验证**。整体 **未验证**，回执见 [verify-tech.md](../../reports/subscription-smoke/verify-tech.md)。
+- x-verify-spec：依据本文①、功能正文 H1–H4、实现前 README 快照、③用例以及逐例执行记录进行九项对账。结构、来源、映射、变更索引和测试记录可核查；ZCode 成功执行的预期仍有实际失败，整体 **对账未完成**。具体回执见 verify-spec.md（本机归档）。
+- x-verify-tech：独立运行 7 项专项及 tsc，审查 D1–D4/R1–R7；路由、数据归属、配置和清理项通过；ZCode 成功返回 JSON 的真实兼容性 **未验证**。整体 **未验证**，回执见 verify-tech.md（本机归档）。
 
 ### 结论与未决
 

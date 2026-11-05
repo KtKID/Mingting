@@ -11,9 +11,10 @@ import { CodexAdapter } from "../src/server/codex-adapter.js";
 import { TaskConnector } from "../src/connector/connector.js";
 import { createPlatform } from "../src/server/http.js";
 
-test("AR1 recorded fixture points to four intact real runs and preserves the original ACP request", async () => {
+test("AR1 the default fixture is self-contained and private replay sources are verified when supplied", async () => {
   const data = await loadRecording();
-  assert.equal(data.sources.length, 4);
+  if (process.env.APPROVAL_RECORDING_PATH === undefined)
+    assert.deepEqual(data.sources, []);
   for (const source of data.sources) {
     const text = await readFile(source.path, "utf8");
     assert.equal(

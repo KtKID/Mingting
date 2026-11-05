@@ -10,7 +10,7 @@ import {
   scenarios,
   type ApprovalBatch,
 } from "../src/shared/approval-replay.js";
-import { recordingPath, recordingSchema } from "./approval-replay-data.js";
+import { readRecordingInput, recordingSchema } from "./approval-replay-data.js";
 
 export async function atomicJson(path: string, value: unknown) {
   await mkdir(dirname(path), { recursive: true });
@@ -143,7 +143,7 @@ export async function saveApprovalArchive(archive: ApprovalArchive) {
   );
 }
 export async function freezeApprovalInputs(archive: ApprovalArchive) {
-  const text = await readFile(recordingPath, "utf8");
+  const text = await readRecordingInput();
   await writeFile(resolve(archive.directory, "inputs/recording.json"), text, {
     flag: "wx",
   });

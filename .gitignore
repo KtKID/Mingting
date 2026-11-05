@@ -8,3 +8,5 @@ var/
 playwright-report/
 test-results/
 *.sqlite*
+/Report/
+/reports/

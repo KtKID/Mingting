@@ -16,7 +16,7 @@ let used = false;
 const connection = agent({ name: "zcode-recording-replay" })
   .onRequest(methods.agent.initialize, () => ({
     protocolVersion: PROTOCOL_VERSION,
-    agentInfo: { name: "ZCode 真实数据回放（模型与工具录制）", version: "1" },
+    agentInfo: { name: "ZCode 审批回放", version: "1" },
     agentCapabilities: {},
     authMethods: [],
   }))

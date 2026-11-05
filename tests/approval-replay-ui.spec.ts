@@ -101,7 +101,7 @@ for (const scenario of scenarios)
         name: "publish_task",
         arguments: {
           title,
-          description: "复用真实 ZCode 审批数据，模型与工具使用录制响应。",
+          description: "模型与工具使用固定的审批回放输入。",
           publisherName: "Codex",
           targetHarness: "ZCode-Replay",
           approvalTargets: ["subscriber"],
@@ -147,12 +147,12 @@ for (const scenario of scenarios)
       const first = (await readCurrent()).approvals[0];
       if (!first) throw new Error("缺少实际审批");
       check(
-        "原始操作输入与真实录制一致",
+        "操作输入与回放输入一致",
         first.request.toolCall.rawInput,
         recording.request.toolCall.rawInput,
       );
       check(
-        "原始审批选项与真实录制一致",
+        "审批选项与回放输入一致",
         first.request.options,
         recording.request.options,
       );
@@ -281,7 +281,7 @@ for (const scenario of scenarios)
       );
       if (!scenario.cancel) {
         check(
-          "返回正确的真实录制响应",
+          "返回正确的回放响应",
           run.output,
           selected === "allow"
             ? recording.allowedOutput

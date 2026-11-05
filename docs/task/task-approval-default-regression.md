@@ -30,11 +30,11 @@
 
 开发验证：`npm test` 首轮80项单元检查+构建+10条审批全部通过；补充真实失败子进程留存反例后，`npm run check` 第二轮81项单元检查+构建+10条审批全部通过。两轮均自动填写双方决定、点击、结果和归档，0跳过。日志分别为 `reports/approval-e2e/default-regression/default-run.log`、`check-run.log`；完整每轮日志同时位于各自UUID目录。
 
-RA1–RA5共5项通过：两轮独立输入/结果；中断保留部分记录；旧记录字节一致与中断迁移恢复；未提交目录与损坏元数据；真实失败npm子进程的退出码/完整日志/输入留存。该组在独立临时目录验证并清理测试夹具。[专项日志](../../reports/approval-e2e/default-regression/archive-tests-final.log)。
+RA1–RA5共5项通过：两轮独立输入/结果；中断保留部分记录；旧记录字节一致与中断迁移恢复；未提交目录与损坏元数据；真实失败npm子进程的退出码/完整日志/输入留存。该组在独立临时目录验证并清理测试夹具。专项日志（本机归档）。
 
-既有网页回归16项通过，涵盖桌面/手机可见的新入口及原审批逻辑。[UI日志](../../reports/approval-e2e/default-regression/ui.log)。实际浏览器点击主入口，切换最新默认批次与原始可见回放；两者均10/10，自动批次展示完整任务快照和自动判定，旧批次仍有60390任务链接。[入口](../../reports/approval-e2e/default-regression/entry.png)、[历史选择](../../reports/approval-e2e/default-regression/legacy-history.png)、[自动结果](../../reports/approval-e2e/default-regression/history.png)。
+既有网页回归16项通过，涵盖桌面/手机可见的新入口及原审批逻辑。UI日志（本机归档）。实际浏览器点击主入口，切换最新默认批次与原始可见回放；两者均10/10，自动批次展示完整任务快照和自动判定，旧批次仍有60390任务链接。入口（本机归档）、历史选择（本机归档）、自动结果（本机归档）。
 
-留存核对：[retention.json](../../reports/approval-e2e/default-regression/retention.json)确认两轮独立UUID、相同冻结输入SHA、各29张截图/10份任务快照/10份trace，以及旧人工回放；每份原始源记录副本哈希一致。默认回归数据库与日常60390隔离，日常任务继续保留。
+留存核对：retention.json（本机归档）确认两轮独立UUID、相同冻结输入SHA、各29张截图/10份任务快照/10份trace，以及旧人工回放；每份原始源记录副本哈希一致。默认回归数据库与日常60390隔离，日常任务继续保留。
 
 格式检查通过；`git diff --check`退出0。严格类型检查扩展到独立Playwright审批配置，输出为空、退出0；见本目录 `typecheck.log` 和 `format.log`。本轮源文件基线见 `reports/approval-e2e/default-regression/source-baseline.json`，各自动批次另保留执行时基线。
 

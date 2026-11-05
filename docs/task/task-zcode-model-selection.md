@@ -40,7 +40,7 @@
 - 项目忽略目录 `.env`、`var/zcode-local`、`var/zcode-provider.json`、测试工作区配置已更新；源码中的 `.env.example`、README 中英文、PROGRESS、功能正文和前轮历史记录入口同步。
 - 原诊断尝试使用旧手动 key 得到401；实际方案使用现有 OAuth 登录密文，并由 CLI 原生流程获取有效项目令牌。该依据在产品代码修改前写入②。正式初始化脚本自动完成已手工验证的配置步骤，保留同样源/目标权限和绑定语义。
 
-文件内容基线见 [source-baseline.json](../../reports/zcode-model-selection/source-baseline.json)，实现前快照在相同目录的 `*before*`。本轮没有新增依赖或修改依赖清单/lock。
+文件内容基线见 source-baseline.json（本机归档），实现前快照在相同目录的 `*before*`。本轮没有新增依赖或修改依赖清单/lock。
 
 ## ⑤ 验证结果
 
@@ -64,7 +64,7 @@ ZCode 使用 GLM-5.3 完成真实问候回传。本轮新增5个自动测试，�
 
 ### 既有功能回归（本轮实际执行）
 
-原有28个自动测试完整重跑，逐例清单与前提/预期沿用 [前轮记录⑤](task-harness-subscriptions.md#⑤-验证结果) 的 R1–R21、T1–T5；本轮结果以 [check.log](../../reports/zcode-model-selection/check.log) 为准，28项全部通过：MCP发布/工具发现，人工允许/拒绝/取消/重试，持久化/崩溃恢复，HTTP/SSE安全，原子领取/seq/fencing，离线重放和游标分页，多订阅者互斥，工作区/模式检查，ACP及原生CLI进程退出/强制清理，原生有效/错误JSON等。新结果测试新增而保留原CLI断言。
+原有28个自动测试完整重跑，逐例清单与前提/预期沿用 [前轮记录⑤](task-harness-subscriptions.md#⑤-验证结果) 的 R1–R21、T1–T5；本轮结果以 check.log（本机归档） 为准，28项全部通过：MCP发布/工具发现，人工允许/拒绝/取消/重试，持久化/崩溃恢复，HTTP/SSE安全，原子领取/seq/fencing，离线重放和游标分页，多订阅者互斥，工作区/模式检查，ACP及原生CLI进程退出/强制清理，原生有效/错误JSON等。新结果测试新增而保留原CLI断言。
 
 前轮4项桌面/手机网页回归作为历史证据，本轮产品UI源码保持原样，采用实际ZCode成功任务详情复查。未把前轮网页4项计作本轮重新执行。复杂任务、CLI工具审批和Flash模型独立调用属于范围外，本轮真实模型只做问候。覆盖率没有仓库门槛，本轮未采集。
 
@@ -80,8 +80,8 @@ ZCode 使用 GLM-5.3 完成真实问候回传。本轮新增5个自动测试，�
 
 ### 公共验收与结论
 
-x-verify-spec 对本文①–⑤、模块H3/H4、前后基线、完整回归日志、隔离测试、真实MCP/模型/网页证据进行交付对账：**对账通过**。回执保存在 [verify-spec.md](../../reports/zcode-model-selection/verify-spec.md)。
+x-verify-spec 对本文①–⑤、模块H3/H4、前后基线、完整回归日志、隔离测试、真实MCP/模型/网页证据进行交付对账：**对账通过**。回执保存在 verify-spec.md（本机归档）。
 
-x-verify-tech 根据②D1–D3a及R1–R7审查源码并独立运行9项专项和tsc，核对真实原生CLI结果与全局文件哈希：**技术验收通过**。回执保存在 [verify-tech.md](../../reports/zcode-model-selection/verify-tech.md)。
+x-verify-tech 根据②D1–D3a及R1–R7审查源码并独立运行9项专项和tsc，核对真实原生CLI结果与全局文件哈希：**技术验收通过**。回执保存在 verify-tech.md（本机归档）。
 
 本轮范围已完成，ZCode成功订阅、唤起和问候回传；功能正文/changelog/README已同步，前轮阻塞以历史记录保留并链接至本轮修复。隔离OAuth过期时由显式初始化命令更新项目快照；当前CLI升级后的兼容性应按新版本再验证。原安装、系统代理和个人配置保持原样，既有其他工作区变更保留。本轮源码与记录保持本地，未创建提交或推送。

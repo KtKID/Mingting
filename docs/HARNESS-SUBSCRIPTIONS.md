@@ -14,7 +14,7 @@ MCP `publish_task` 可携带 targetHarness。服务对通知和领取同时匹�
 
 三个连接器统一通过 ACP v1 执行。Codex 使用官方 Codex ACP；Grok 使用自身 `grok agent stdio`；ZCode 使用项目内 ACP 桥接器驱动原生 CLI 0.17.1 的 `zcode app-server --stdio`。桥接器先建立会话并订阅事件，再发送文本任务；原生权限请求转换为 ACP `session/request_permission`，明庭的最终选项按原始响应回传 ZCode。协议来源在网页详情显示。
 
-Grok 固定 plan 模式，仅开放 Read；ZCode 桥接器固定 plan、一次文本回合、Read 工具，使用当前 GLM-5.3 OAuth 账号配置。Codex 沿用 workspace-write 和人工审批。MCP 负责发布/查询身份，连接器 SSE 负责常驻任务通知与身份注册；成功领取后唤起对应 harness，ACP 通知与结果按序回传。ZCode 已完成真实原生工具审批：订阅者同意满十秒后读取文件、倒计时内用户拒绝、用户先拒绝；见[实测记录](../reports/zcode-approval-channel/README.md)。
+Grok 固定 plan 模式，仅开放 Read；ZCode 桥接器固定 plan、一次文本回合、Read 工具，使用当前 GLM-5.3 OAuth 账号配置。Codex 沿用 workspace-write 和人工审批。MCP 负责发布/查询身份，连接器 SSE 负责常驻任务通知与身份注册；成功领取后唤起对应 harness，ACP 通知与结果按序回传。ZCode 已完成真实原生工具审批：订阅者同意满十秒后读取文件、倒计时内用户拒绝、用户先拒绝；见实测记录（本机归档）。
 
 ## H4 部署
 
@@ -36,7 +36,7 @@ Grok 固定 plan 模式，仅开放 Read；ZCode 桥接器固定 plan、一次�
 
 | 日期       | 类型 | 内容                                            | 记录                                                     | 状态   |
 | ---------- | ---- | ----------------------------------------------- | -------------------------------------------------------- | ------ |
-| 2026-11-01 | 修复 | H3原生双向审批、项目OAuth请求授权、拒绝状态同步 | [修复报告](../reports/fix/fix-report-20261101-162219.md) | 已完成 |
+| 2026-11-01 | 修复 | H3原生双向审批、项目OAuth请求授权、拒绝状态同步 | 修复报告（本机归档） | 已完成 |
 | 2026-11-01 | 新增 | H6发起方审批订阅、弹窗与十秒用户优先窗口        | [任务](task/task-approvals.md)                           | 已完成 |
 
 ### 历史变更
@@ -87,7 +87,7 @@ SSE 自报身份的请求头是 `x-harness-name` 和 `x-owner-id`（UUID）。�
 | Grok  | 通过，原生 Grok CLI             | `你好，我是 Grok。`，succeeded  |
 | ZCode | 通过，原生 zcode CLI（GLM-5.3） | `你好，我是 ZCode。`，succeeded |
 
-前轮任务 ID、模型会话 ID、MCP 调用与启动 PID 见 [历史证据](../reports/subscription-smoke/live-evidence.json)。本轮 ZCode 账户绑定与项目隔离修复后的 [完整证据](../reports/zcode-model-selection/live-evidence.json) 对应任务 `036e0903-a80d-4afc-97d4-0de3030e913f`，原生 idle 最终结果成功回传。历史失败任务保留原始结果。
+前轮任务 ID、模型会话 ID、MCP 调用与启动 PID 见 历史证据（本机归档）。本轮 ZCode 账户绑定与项目隔离修复后的 完整证据（本机归档） 对应任务 `036e0903-a80d-4afc-97d4-0de3030e913f`，原生 idle 最终结果成功回传。历史失败任务保留原始结果。
 
 ## ZCode 项目内模型与登录配置
 
@@ -111,6 +111,6 @@ Codex/Grok 首次部署执行 `node --import tsx scripts/prepare-harness-local.t
 
 ## ACP 实时展示实测
 
-2026-11-01 的[本轮任务](task/task-acp-streaming.md)已完成qdev。经 MCP 指定 Codex/Grok/ZCode，各自产生一个独立运行，读取项目 HELLO.txt 并问候；三项均成功。网页 SSE 在结束前收到正文与工具，Grok/ZCode同时有思考内容；本次Codex思考为空。刷新后快照一致，桌面与手机6项交互通过，自动测试40项通过。[实际链路](../reports/acp-streaming/live-evidence.json)、[接入兼容性及隔离边界](../reports/acp-streaming/compatibility.md)记录协议来源和历史差异。
+2026-11-01 的[本轮任务](task/task-acp-streaming.md)已完成qdev。经 MCP 指定 Codex/Grok/ZCode，各自产生一个独立运行，读取项目 HELLO.txt 并问候；三项均成功。网页 SSE 在结束前收到正文与工具，Grok/ZCode同时有思考内容；本次Codex思考为空。刷新后快照一致，桌面与手机6项交互通过，自动测试40项通过。实际链路（本机归档）、接入兼容性及隔离边界（本机归档）记录协议来源和历史差异。
 
 2026-11-01 H5恢复修复：关闭的实时流与临时会话恢复失败均持续重试；已完成，见[恢复qdev](task/task-web-reconnect.md)。

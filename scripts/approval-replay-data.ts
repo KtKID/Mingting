@@ -26,13 +26,9 @@ export const recordingPath = new URL(
   "../tests/fixtures/zcode-approval-recording.json",
   import.meta.url,
 );
+export function readRecordingInput() {
+  return readFile(process.env.APPROVAL_RECORDING_PATH ?? recordingPath, "utf8");
+}
 export async function loadRecording() {
-  return recordingSchema.parse(
-    JSON.parse(
-      await readFile(
-        process.env.APPROVAL_RECORDING_PATH ?? recordingPath,
-        "utf8",
-      ),
-    ),
-  );
+  return recordingSchema.parse(JSON.parse(await readRecordingInput()));
 }
