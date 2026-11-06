@@ -160,7 +160,7 @@ ACP 已给上下文提供可选的标准 `usage_update`。回合消耗还有不�
 
 | 边界 | 计划行为 |
 |---|---|
-| `POST /api/tasks`、MCP `publish_task` | 共用扩展后的发布 schema。保持旧请求兼容。已知选项 ID 的 MCP 调用可以在缺能力快照时发布，实际会话最终校验 |
+| `POST /api/tasks`、MCP `mcp-mingting-tool` | 共用扩展后的发布 schema。保持旧请求兼容。已知选项 ID 的 MCP 调用可以在缺能力快照时发布，实际会话最终校验 |
 | 新 `POST /connector/capabilities` | 当前已注册连接器上报规范化选项及来源，绑定在线 owner/连接代次；本机入口拒绝浏览器来源，身份不符、旧连接或快照超限则拒绝。注册身份 schema 保持只含原身份字段，harness 查询视图添加可选能力快照。沿用 `/api/harnesses`、`list_harnesses` 与网页快照消费 |
 | 原 `/connector/runs/:id/report` | 增加设置回执和上下文更新类型，终态带标准化 Usage。序号有缺口或当前 run/会话/租约不符时拒绝。回执提交确认后才发送 prompt |
 | 任务详情、网页 SSE、新 `GET /api/tasks/:id/runs/:runId/audit` | 当前视图读回执、用量、最新上下文及已有流式投影。历史按 run/seq 分页，校验 run 属于该任务与同源会话。审批按 run 与 toolCallId 关联；游标不跨运行复用 |

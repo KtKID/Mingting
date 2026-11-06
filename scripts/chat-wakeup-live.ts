@@ -82,7 +82,7 @@ if (command === "probe") {
     )
       throw new Error("聊天唤醒宿主尚未接通；实际任务保持未发布");
     const response = await client.callTool({
-      name: "publish_task",
+      name: "mcp-mingting-tool",
       arguments: input,
     });
     if (response.isError)

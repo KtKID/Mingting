@@ -874,16 +874,14 @@ function App() {
                     {wakeup ? (
                       <>
                         <div>
-                          会话 ID（threadId）{" "}
-                          <code>{wakeup.target.threadId}</code>
+                          会话 ID <code>{wakeup.target.sessionId}</code>
                         </div>
                         <div>
-                          发单轮次 ID（originTurnId）{" "}
-                          <code>{wakeup.target.originTurnId}</code>
+                          发单轮次 <code>{wakeup.target.originTurn}</code>
                         </div>
                       </>
                     ) : (
-                      "未绑定 MCP 唤醒"
+                      "未绑定会话"
                     )}
                   </dd>
                 </div>

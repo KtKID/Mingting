@@ -8,6 +8,7 @@ import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { createPlatform } from "../src/server/http.js";
 import { dshPublishSchema } from "../src/shared/dsh-wakeup.js";
+import { browserSnapshotSchema } from "../src/shared/protocol.js";
 
 test("the DSH contract keeps accepting existing bare UUID session IDs", () => {
   const sessionId = randomUUID();
@@ -218,6 +219,207 @@ test(
         server.close(() => resolve());
         server.closeAllConnections();
       });
+      platform.store.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "standard MCP issues a recoverable result receipt and binds the configured session",
+  { timeout: 10_000 },
+  async () => {
+    const dir = await mkdtemp(join(tmpdir(), "mingting-mcp-result-"));
+    const token = randomBytes(32).toString("hex");
+    const hostId = randomUUID();
+    const platform = createPlatform({
+      dbPath: join(dir, "tasks.sqlite"),
+      workspace: dir,
+      mode: "fake",
+      dshWakeupHost: { hostId, token },
+    });
+    const server = createServer(platform.app);
+    const stop = new AbortController();
+    const signal = AbortSignal.any([stop.signal, AbortSignal.timeout(8_000)]);
+    try {
+      await new Promise<void>((resolve) =>
+        server.listen(0, "127.0.0.1", resolve),
+      );
+      const address = server.address();
+      assert.ok(address && typeof address !== "string");
+      const base = `http://127.0.0.1:${address.port}`;
+      const hostHeaders = { authorization: `Bearer ${token}` };
+      const source = `session-${randomUUID()}`;
+      const target = randomUUID();
+      const context = {
+        sessionId: source,
+        originTurn: 3,
+        targetSessionId: target,
+        publishRequestId: "mcp-call",
+      };
+      const args = {
+        title: "Write test file",
+        description: "Write one line",
+        publisherName: "KMH",
+        approvalTargets: [],
+      };
+      const publish = async (
+        headers: Record<string, string>,
+        description = args.description,
+        meta: object = context,
+      ) => {
+        const response = await fetch(base + "/mcp", {
+          method: "POST",
+          signal,
+          headers: {
+            ...headers,
+            "content-type": "application/json",
+            accept: "application/json, text/event-stream",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "tools/call",
+            params: {
+              name: "mcp-mingting-tool",
+              arguments: { ...args, description },
+              _meta: { "mingting.local/publisher-context": meta },
+            },
+          }),
+        });
+        assert.equal(response.status, 200);
+        const { result } = await response.json();
+        return result;
+      };
+      assert.equal((await publish({})).isError, true);
+      assert.equal((await publish(hostHeaders)).isError, true);
+      assert.equal(platform.store.list().length, 0);
+      const stream = await fetch(base + "/wakeup-host/events", {
+        headers: { ...hostHeaders, "x-mingting-wakeup-result": "1" },
+        signal,
+      });
+      assert.equal(stream.status, 200);
+      assert.ok(stream.body);
+      const hostReader = stream.body
+        .pipeThrough(new TextDecoderStream())
+        .getReader();
+      assert.match((await hostReader.read()).value ?? "", /event: ready/);
+      assert.equal(
+        (
+          await publish(hostHeaders, args.description, {
+            ...context,
+            originTurn: 0,
+          })
+        ).isError,
+        true,
+      );
+      const { structuredContent: receipt } = await publish(hostHeaders);
+      assert.ok(receipt.resultSubscription.subscriptionToken);
+      assert.equal(receipt.taskUrl, base + "/?task=" + receipt.taskId);
+      assert.deepEqual(receipt.wakeupTarget, {
+        hostId,
+        sessionId: target,
+        originTurn: 3,
+        publisherSessionId: source,
+      });
+      assert.equal(receipt.approvalSubscription, undefined);
+      assert.deepEqual((await publish(hostHeaders)).structuredContent, receipt);
+      assert.equal((await publish(hostHeaders, "different")).isError, true);
+      assert.equal(platform.store.list().length, 1);
+
+      const owner = { ownerId: randomUUID(), claimId: randomUUID() };
+      const { run } = platform.service.claim(receipt.taskId, owner);
+      platform.service.report(run.id, owner, 1, {
+        type: "session",
+        sessionId: "executor",
+      });
+      platform.service.report(run.id, owner, 2, {
+        type: "notification",
+        notification: {
+          sessionId: "executor",
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "实际结果" },
+          },
+        },
+      });
+      platform.service.report(run.id, owner, 3, {
+        type: "finished",
+        status: "succeeded",
+        stopReason: "end_turn",
+        error: null,
+      });
+      const hostFrame = (await hostReader.read()).value ?? "";
+      assert.match(hostFrame, new RegExp(target));
+      assert.match(hostFrame, /实际结果/);
+      const eventId = `task.completed:${run.id}`;
+      const ack = await fetch(base + "/wakeup-host/ack", {
+        method: "POST",
+        signal,
+        headers: { ...hostHeaders, "content-type": "application/json" },
+        body: JSON.stringify({
+          eventId,
+          sessionId: target,
+          outcome: "accepted",
+        }),
+      });
+      assert.equal(ack.status, 200);
+      const bootstrap = await fetch(base + "/api/bootstrap", { signal });
+      const cookie = bootstrap.headers.get("set-cookie")?.split(";")[0];
+      assert.ok(cookie);
+      const browser = await fetch(
+        base + "/api/events?taskId=" + receipt.taskId,
+        {
+          signal,
+          headers: { cookie },
+        },
+      );
+      assert.ok(browser.body);
+      const browserReader = browser.body
+        .pipeThrough(new TextDecoderStream())
+        .getReader();
+      const snapshotFrame = (await browserReader.read()).value ?? "";
+      await browserReader.cancel();
+      const payload = /^data: (.+)$/m.exec(snapshotFrame)?.[1];
+      assert.ok(payload);
+      const snapshot = browserSnapshotSchema.parse(JSON.parse(payload));
+      assert.deepEqual(snapshot.detail?.wakeup, {
+        target: { sessionId: target, originTurn: 3 },
+        events: [{ id: eventId, type: "task.completed", status: "delivered" }],
+      });
+
+      const subscribe = (subscriptionToken: string, view = "&view=result") =>
+        fetch(base + "/subscriber/events?taskId=" + receipt.taskId + view, {
+          signal,
+          headers: { authorization: `Bearer ${subscriptionToken}` },
+        });
+      const resultToken = receipt.resultSubscription.subscriptionToken;
+      assert.equal((await subscribe(token)).status, 403);
+      assert.equal((await subscribe(resultToken, "")).status, 403);
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const result = await subscribe(resultToken);
+        assert.equal(result.status, 200);
+        assert.ok(result.body);
+        const reader = result.body
+          .pipeThrough(new TextDecoderStream())
+          .getReader();
+        let frames = "";
+        while (!frames.includes("实际结果")) {
+          const next = await reader.read();
+          assert.ok(!next.done);
+          frames += next.value;
+        }
+        assert.match(frames, /event: task.status/);
+        assert.match(frames, new RegExp(`id: task.completed:${run.id}`));
+        assert.match(frames, /"status":"succeeded"/);
+        await reader.cancel();
+      }
+      await hostReader.cancel();
+    } finally {
+      stop.abort();
+      await platform.service.close();
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
       platform.store.close();
       await rm(dir, { recursive: true, force: true });
     }

@@ -1,6 +1,12 @@
 import { z } from "zod";
 import { wakeupEventSchema, wakeupTargetSchema } from "./task-wakeup.js";
-import { dshTaskFields } from "./dsh-wakeup.js";
+import {
+  dshTaskFields,
+  dshWakeupTargetSchema,
+  resultReceiptSchema,
+  resultSubscriptionSchema,
+  terminalTaskStatuses,
+} from "./dsh-wakeup.js";
 import type {
   InitializeResponse,
   RequestPermissionRequest,
@@ -175,10 +181,7 @@ export const taskStatusSchema = z.enum([
   "queued",
   "running",
   "awaiting_approval",
-  "succeeded",
-  "failed",
-  "cancelled",
-  "interrupted",
+  ...terminalTaskStatuses,
 ]);
 export const taskSchema = publishFieldsSchema.omit({ wakeup: true }).extend({
   approvalTargets: approvalTargetsSchema.default(["subscriber"]),
@@ -294,15 +297,20 @@ export const detailSchema = z.object({
     })
     .optional(),
 });
+export const browserWakeupSummarySchema = z.object({
+  target: z.object({
+    sessionId: dshWakeupTargetSchema.shape.sessionId,
+    originTurn: z.union([
+      dshWakeupTargetSchema.shape.originTurn,
+      wakeupTargetSchema.shape.originTurnId,
+    ]),
+  }),
+  events: z.array(
+    wakeupEventSchema.pick({ id: true, type: true, status: true }),
+  ),
+});
 const browserTaskDetailSchema = detailSchema.extend({
-  wakeup: z
-    .object({
-      target: wakeupTargetSchema,
-      events: z.array(
-        wakeupEventSchema.pick({ id: true, type: true, status: true }),
-      ),
-    })
-    .optional(),
+  wakeup: browserWakeupSummarySchema.optional(),
 });
 export type BrowserTaskDetail = z.infer<typeof browserTaskDetailSchema>;
 export const browserSnapshotSchema = z.object({
@@ -324,14 +332,11 @@ export const bootstrapSchema = z.object({
   mode: z.enum(["codex", "fake"]),
   workspace: z.string(),
 });
-export const approvalSubscriptionSchema = z.object({
-  taskId: z.string().uuid(),
-  subscriptionToken: z.string().regex(/^[a-f0-9]{64}$/),
-});
-export const publishResultSchema = z.object({
-  taskId: z.string(),
+export const approvalSubscriptionSchema = resultSubscriptionSchema;
+export const publishResultSchema = resultReceiptSchema.extend({
   approvalSubscription: approvalSubscriptionSchema.optional(),
   wakeup: wakeupTargetSchema.optional(),
+  wakeupTarget: dshWakeupTargetSchema.optional(),
 });
 export const subscriberDecisionSchema = approvalSubscriptionSchema
   .extend({

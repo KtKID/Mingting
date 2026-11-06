@@ -18,6 +18,7 @@ import {
   type RunAudit,
   eventSchema,
   deliveryEventSchema,
+  browserWakeupSummarySchema,
   type DeliveryEvent,
 } from "../shared/protocol.js";
 import type { SessionNotification } from "@agentclientprotocol/sdk";
@@ -32,6 +33,7 @@ import {
   type WakeupTarget,
 } from "../shared/task-wakeup.js";
 const now = () => new Date().toISOString();
+const storedWakeupTargetSchema = wakeupTargetSchema.or(dshWakeupTargetSchema);
 
 function summarizeUsage(runs: Run[]): TaskDetail["usageSummary"] {
   const finished = runs.filter((run) => run.endedAt);
@@ -100,6 +102,7 @@ export class Store {
       CREATE INDEX IF NOT EXISTS run_audit_context ON run_audit(run_id,seq DESC) WHERE kind='context';
       CREATE TABLE IF NOT EXISTS runtime_metadata (key TEXT PRIMARY KEY,value INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS approval_subscribers (task_id TEXT PRIMARY KEY REFERENCES tasks(id),token_hash TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS task_result_subscribers (task_id TEXT PRIMARY KEY REFERENCES tasks(id),token_hash TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS deliveries (id INTEGER PRIMARY KEY AUTOINCREMENT,task_id TEXT REFERENCES tasks(id),created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS leases (run_id TEXT PRIMARY KEY REFERENCES runs(id),owner_id TEXT NOT NULL,claim_id TEXT NOT NULL,deadline INTEGER NOT NULL,seq INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS task_wakeup_targets (task_id TEXT PRIMARY KEY REFERENCES tasks(id),data TEXT NOT NULL);
@@ -227,6 +230,25 @@ export class Store {
       ? wakeupTargetSchema.parse(JSON.parse(String(row.data)))
       : undefined;
   }
+  browserWakeupSummary(taskId: string) {
+    const row = this.db
+      .prepare("SELECT data FROM task_wakeup_targets WHERE task_id=?")
+      .get(taskId);
+    if (!row) return;
+    const binding = storedWakeupTargetSchema.parse(
+      JSON.parse(String(row.data)),
+    );
+    const target =
+      "sessionId" in binding
+        ? { sessionId: binding.sessionId, originTurn: binding.originTurn }
+        : { sessionId: binding.threadId, originTurn: binding.originTurnId };
+    const events = this.db
+      .prepare(
+        "SELECT id, json_extract(data,'$.type') AS type, json_extract(data,'$.status') AS status FROM task_wakeup_events WHERE task_id=? ORDER BY rowid",
+      )
+      .all(taskId);
+    return browserWakeupSummarySchema.parse({ target, events });
+  }
   private enqueueWakeup(
     type: WakeupEvent["type"],
     taskId: string,
@@ -328,6 +350,28 @@ export class Store {
     this.db
       .prepare("INSERT INTO approval_subscribers VALUES(?,?)")
       .run(taskId, tokenHash);
+  }
+  saveResultSubscriber(taskId: string, tokenHash: string) {
+    this.db
+      .prepare("INSERT INTO task_result_subscribers VALUES(?,?)")
+      .run(taskId, tokenHash);
+  }
+  resultSubscriber(taskId: string, tokenHash: string): boolean {
+    return Boolean(
+      this.db
+        .prepare(
+          "SELECT 1 FROM task_result_subscribers WHERE task_id=? AND token_hash=?",
+        )
+        .get(taskId, tokenHash),
+    );
+  }
+  finishedRuns(taskId: string): Run[] {
+    return this.db
+      .prepare(
+        "SELECT data FROM runs WHERE task_id=? AND json_extract(data,'$.endedAt') IS NOT NULL ORDER BY rowid",
+      )
+      .all(taskId)
+      .map((row) => runSchema.parse(JSON.parse(String(row.data))));
   }
   approvalSubscriber(taskId: string, tokenHash: string): boolean {
     return Boolean(

@@ -1,11 +1,14 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { Router } from "express";
+import { Router, type Request } from "express";
 import { z } from "zod";
 import {
   dshAckSchema,
   dshCompletionSchema,
   dshPublishSchema,
+  dshPublisherContextSchema,
+  wakeupResultHeader,
+  wakeupResultTextLimit,
 } from "../shared/dsh-wakeup.js";
 import { LIMITS } from "../shared/protocol.js";
 import { AppError, type TaskService } from "./service.js";
@@ -33,7 +36,7 @@ export function dshWakeupRouter(service: TaskService, config: DshWakeupHost) {
   const { hostId, token } = hostSchema.parse(config);
   const expected = createHash("sha256").update(`Bearer ${token}`).digest();
   let connected = false;
-  router.use((req, _res, next) => {
+  const requireHost = (req: Request) => {
     if (
       req.headers.origin !== undefined ||
       req.headers["sec-fetch-site"] !== undefined
@@ -44,6 +47,23 @@ export function dshWakeupRouter(service: TaskService, config: DshWakeupHost) {
       .digest();
     if (!timingSafeEqual(expected, actual))
       throw new AppError(401, "DSH 宿主认证失败");
+  };
+  const publisher = (req: Request, raw: unknown) => {
+    requireHost(req);
+    const parsed = dshPublisherContextSchema.safeParse(raw);
+    if (!parsed.success) throw new AppError(400, "KMH 发单会话或轮次无效");
+    const source = parsed.data;
+    return {
+      hostId,
+      source,
+      connected,
+      subscriptionToken: createHmac("sha256", token)
+        .update(`mingting-result:${source.publishRequestId}`)
+        .digest("hex"),
+    };
+  };
+  router.use((req, _res, next) => {
+    requireHost(req);
     next();
   });
 
@@ -56,7 +76,7 @@ export function dshWakeupRouter(service: TaskService, config: DshWakeupHost) {
     res.status(result.created ? 201 : 200).json({ taskId: result.taskId });
   });
 
-  router.get("/events", (_req, res) => {
+  router.get("/events", (req, res) => {
     if (connected) throw new AppError(409, "该宿主已连接完成事件流");
     connected = true;
     let lastSent: string | undefined;
@@ -71,6 +91,10 @@ export function dshWakeupRouter(service: TaskService, config: DshWakeupHost) {
       if (res.writableEnded) return;
       const event = service.store.pendingDshWakeup(hostId);
       if (!event || lastSent === event.id) return;
+      const run =
+        req.headers[wakeupResultHeader] === "1"
+          ? service.store.run(event.runId)
+          : undefined;
       const frame = dshCompletionSchema.parse({
         eventId: event.id,
         taskId: event.taskId,
@@ -78,6 +102,18 @@ export function dshWakeupRouter(service: TaskService, config: DshWakeupHost) {
         sessionId: event.target.sessionId,
         originTurn: event.target.originTurn,
         completedAt: event.createdAt,
+        ...(run?.endedAt
+          ? {
+              result: {
+                status: run.status,
+                output: run.output.slice(0, wakeupResultTextLimit),
+                error: run.error?.slice(0, wakeupResultTextLimit) ?? null,
+                truncated:
+                  run.output.length > wakeupResultTextLimit ||
+                  (run.error?.length ?? 0) > wakeupResultTextLimit,
+              },
+            }
+          : {}),
       });
       lastSent = event.id;
       if (
@@ -105,5 +141,5 @@ export function dshWakeupRouter(service: TaskService, config: DshWakeupHost) {
       service.acknowledgeDshWakeup(hostId, dshAckSchema.parse(req.body)),
     );
   });
-  return router;
+  return { router, publisher };
 }

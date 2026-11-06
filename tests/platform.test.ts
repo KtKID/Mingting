@@ -285,7 +285,7 @@ test("Codex settings are published by Web and MCP without a capability snapshot"
       new StreamableHTTPClientTransport(new URL(p.base + "/mcp")),
     );
     const mcp = await client.callTool({
-      name: "publish_task",
+      name: "mcp-mingting-tool",
       arguments: input,
     });
     const stored = p.store.list().filter((task) => task.title === input.title);
@@ -791,7 +791,7 @@ test("real HTTP MCP publish → SQLite → ACP child permission → browser API 
     assert.deepEqual(
       (await client.listTools()).tools.map((t) => t.name),
       [
-        "publish_task",
+        "mcp-mingting-tool",
         "list_harnesses",
         "wait_for_approval",
         "submit_approval_decision",
@@ -805,7 +805,7 @@ test("real HTTP MCP publish → SQLite → ACP child permission → browser API 
       true,
     );
     const published = await client.callTool({
-      name: "publish_task",
+      name: "mcp-mingting-tool",
       arguments: {
         title: "审批闭环",
         description: "test command",
@@ -1302,7 +1302,7 @@ test("SSE subscription before HTTP MCP publication receives a durable task.avail
       new StreamableHTTPClientTransport(new URL(p.base + "/mcp")),
     );
     const published = await client.callTool({
-      name: "publish_task",
+      name: "mcp-mingting-tool",
       arguments: {
         title: "先订阅再发布",
         description: "real HTTP event",

@@ -1,6 +1,6 @@
 # Local harness subscription extension (2026-11-01)
 
-The local runtime now supports named Codex, Grok and ZCode SSE connectors. `publish_task` accepts an optional `targetHarness`; `list_harnesses` returns online identities. Offline targets remain queued. Codex, Grok and ZCode completed real targeted greeting tasks. ZCode now uses GLM-5.3 with an explicit project-local encrypted login snapshot and account binding; original global files remain unchanged. Current deployment and qdev evidence: [Harness subscriptions](docs/HARNESS-SUBSCRIPTIONS.md). The original 0.2 documentation below describes the preceding single-Codex baseline.
+The local runtime now supports named Codex, Grok and ZCode SSE connectors. `mcp-mingting-tool` accepts an optional `targetHarness`; `list_harnesses` returns online identities. Offline targets remain queued. Codex, Grok and ZCode completed real targeted greeting tasks. ZCode now uses GLM-5.3 with an explicit project-local encrypted login snapshot and account binding; original global files remain unchanged. Current deployment and qdev evidence: [Harness subscriptions](docs/HARNESS-SUBSCRIPTIONS.md). The original 0.2 documentation below describes the preceding single-Codex baseline.
 
 # Mingting
 
@@ -18,7 +18,7 @@ MVP 0.2 is a local task platform. MCP exposes one publishing tool. A separate Co
 
 | Capability                 | Current implementation                                                                                                                                                 |
 | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Task publishing            | MCP `publish_task` accepts task details, optional execution target and review targets. The web form uses the same task service.                                        |
+| Task publishing            | MCP `mcp-mingting-tool` accepts task details, optional execution target and review targets. The web form uses the same task service.                                        |
 | Task list                  | A React/TypeScript list shows title, description, publisher, status, result and approvals. It supports desktop/mobile layouts and light/dark themes.                   |
 | Subscription and ownership | Independent HTTP SSE subscriptions, persisted SQLite events, replay after disconnect, atomic claims and run ownership.                                                 |
 | Execution                  | One local Codex connector uses the open-source Codex ACP adapter to communicate with Codex App Server.                                                                 |
@@ -111,7 +111,7 @@ Both entrypoints read an optional `.env`; `.env.example` documents the settings.
 
 - Transport: **Streamable HTTP**
 - URL: **http://127.0.0.1:60390/mcp**
-- Only tool: **`publish_task`**
+- Task publishing tool: **`mcp-mingting-tool`**
 
 Start the local platform first. For a Codex CLI client, add it yourself:
 
@@ -133,7 +133,7 @@ Tool-call parameters:
 
 ```json
 {
-  "name": "publish_task",
+  "name": "mcp-mingting-tool",
   "arguments": {
     "title": "Improve installation instructions",
     "description": "Review the README and explain installation and startup.",
@@ -163,7 +163,7 @@ Successful `structuredContent` contains `taskId` and, when subscriber review is 
 npm run publish -- "Improve installation instructions" "Document installation and startup" "Lin"
 ```
 
-MCP exposes `publish_task`, `list_harnesses`, `wait_for_approval` and `submit_approval_decision`. Approval subscription uses a private task-scoped token. Publisher names are display text. Repeating publication creates another task; publishing itself is not idempotent.
+MCP exposes `mcp-mingting-tool`, `list_harnesses`, `wait_for_approval` and `submit_approval_decision`. Approval subscription uses a private task-scoped token. Publisher names are display text. Repeating publication creates another task; publishing itself is not idempotent.
 
 ## Task subscription, claims and reports
 

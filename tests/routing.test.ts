@@ -227,7 +227,7 @@ test("T4 HTTP MCP publishes target and lists online identities; filtered replay 
       p.store.deliver(task.id);
     }
     const published = await client.callTool({
-      name: "publish_task",
+      name: "mcp-mingting-tool",
       arguments: {
         title: "Codex hello",
         description: "hi",

@@ -29,11 +29,17 @@ import { Store } from "./store.js";
 import { validateAcp } from "./acp-validation.js";
 import { applyProgress } from "./progress.js";
 import { approvalPrompt } from "../shared/approval.js";
-import type { DshAck, DshPublish } from "../shared/dsh-wakeup.js";
+import {
+  taskResultEventSchema,
+  type DshAck,
+  type DshPublish,
+  type DshPublisherContext,
+} from "../shared/dsh-wakeup.js";
 import { WakeupDispatcher, type WakeupDelivery } from "./task-wakeup.js";
 import {
   wakeupAcknowledgementSchema,
   type WakeupAcknowledgement,
+  type DshWakeupTarget,
 } from "../shared/task-wakeup.js";
 export class AppError extends Error {
   constructor(
@@ -186,9 +192,19 @@ export class TaskService {
     });
     return { ok: true };
   }
-  publish(raw: PublishTask) {
+  publish(
+    raw: PublishTask,
+    publisher?: {
+      hostId: string;
+      source: DshPublisherContext;
+      connected: boolean;
+      subscriptionToken: string;
+    },
+  ) {
     if (this.closed) throw new AppError(503, "服务正在停止");
     const input = publishTaskSchema.parse(raw);
+    if (publisher && input.wakeup)
+      throw new AppError(400, "KMH 唤醒目标由宿主配置提供");
     if (input.wakeup) {
       if (!(input.approvalTargets ?? ["subscriber"]).includes("subscriber"))
         throw new AppError(400, "聊天唤醒需要发起方审批订阅");
@@ -199,28 +215,88 @@ export class TaskService {
     }
     if (input.approvalTargets?.includes("third_party"))
       throw new AppError(400, "第三方审批正在开发中");
-    if (this.store.countActive() >= LIMITS.queue)
-      throw new AppError(429, "队列已满");
-    const subscriptionToken = randomBytes(32).toString("hex");
+    const subscriptionToken =
+      publisher?.subscriptionToken ?? randomBytes(32).toString("hex");
+    const tokenHash = this.tokenHash(subscriptionToken);
+    const source = publisher?.source;
+    const wakeupTarget: DshWakeupTarget | undefined = publisher && {
+      hostId: publisher.hostId,
+      sessionId: publisher.source.targetSessionId ?? publisher.source.sessionId,
+      originTurn: publisher.source.originTurn,
+      publisherSessionId: publisher.source.sessionId,
+    };
+    const requestId = source && `mcp:${source.publishRequestId}`;
+    const fingerprint = createHash("sha256")
+      .update(JSON.stringify([input, wakeupTarget]))
+      .digest("hex");
     const result = this.store.transaction(() => {
-      const task = this.store.publish(input);
+      if (publisher && requestId) {
+        const existing = this.store.dshPublication(publisher.hostId, requestId);
+        if (existing) {
+          const task = this.store.task(existing.taskId);
+          if (
+            !task ||
+            existing.fingerprint !== fingerprint ||
+            !this.store.resultSubscriber(existing.taskId, tokenHash)
+          )
+            throw new AppError(409, "原发布请求的内容或凭据已变化");
+          return { task, event: undefined };
+        }
+        if (!publisher.connected)
+          throw new AppError(503, "KMH 宿主尚未连接完成事件流");
+      }
+      if (this.store.countActive() >= LIMITS.queue)
+        throw new AppError(429, "队列已满");
+      const task = this.store.publish(input, wakeupTarget);
+      this.store.saveResultSubscriber(task.id, tokenHash);
       if (task.approvalTargets.includes("subscriber"))
-        this.store.saveApprovalSubscriber(
+        this.store.saveApprovalSubscriber(task.id, tokenHash);
+      if (publisher && requestId)
+        this.store.recordDshPublication(
+          publisher.hostId,
+          requestId,
+          fingerprint,
           task.id,
-          this.tokenHash(subscriptionToken),
         );
       return { task, event: this.store.deliver(task.id) };
     });
-    this.available(result.event);
+    if (result.event) this.available(result.event);
+    const subscription = { taskId: result.task.id, subscriptionToken };
     return {
       taskId: result.task.id,
+      resultSubscription: subscription,
+      ...(wakeupTarget ? { wakeupTarget } : {}),
       ...(input.wakeup ? { wakeup: input.wakeup } : {}),
       ...(result.task.approvalTargets.includes("subscriber")
         ? {
-            approvalSubscription: { taskId: result.task.id, subscriptionToken },
+            approvalSubscription: subscription,
           }
         : {}),
     };
+  }
+  resultStatus(subscription: ApprovalSubscription) {
+    if (
+      !this.store.resultSubscriber(
+        subscription.taskId,
+        this.tokenHash(subscription.subscriptionToken),
+      )
+    )
+      throw new AppError(403, "结果订阅凭据无效");
+    const task = this.store.task(subscription.taskId);
+    if (!task) throw new AppError(404, "任务不存在");
+    return { taskId: task.id, taskStatus: task.status };
+  }
+  *resultEvents(taskId: string) {
+    for (const run of this.store.finishedRuns(taskId))
+      yield taskResultEventSchema.parse({
+        eventId: `task.completed:${run.id}`,
+        taskId,
+        runId: run.id,
+        status: run.status,
+        output: run.output,
+        error: run.error,
+        endedAt: run.endedAt,
+      });
   }
   wakeupStatus() {
     return (

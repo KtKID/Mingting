@@ -18,7 +18,7 @@
 
 | 功能       | 当前实现                                                                                      |
 | ---------- | --------------------------------------------------------------------------------------------- |
-| 发布任务   | MCP `publish_task`，接收标题、描述、发布人名字与可选目标 Harness；也可使用网页表单            |
+| 发布任务   | MCP `mcp-mingting-tool`，接收标题、描述、发布人名字与可选目标 Harness；也可使用网页表单            |
 | 任务列表   | React + TypeScript 网页展示标题、描述、发布人、状态、结果与审批；支持桌面、手机尺寸和明暗主题 |
 | 订阅与领取 | 独立 HTTP SSE 订阅、SQLite 持久事件、断线补发、原子领取和运行所有权                           |
 | 执行连接器 | 本机 Codex ACP、Grok 原生 ACP、ZCode 原生双向桥接；真实验证问候、只读工具与 ZCode 审批        |
@@ -123,7 +123,7 @@ Streamable HTTP 入口：`http://127.0.0.1:60390/mcp`。
 
 ```json
 {
-  "name": "publish_task",
+  "name": "mcp-mingting-tool",
   "arguments": {
     "title": "补充安装说明",
     "description": "检查 README，补充安装和启动步骤。",
@@ -205,7 +205,7 @@ data: {"id":42,"type":"task.available","taskId":"<UUID>","createdAt":"<ISO时间
 
 ## 审批订阅
 
-发布任务支持 `approvalTargets: ["subscriber"]`（默认）或 `[]`（用户审批）。网页用复选框展示“订阅者”和置灰的“第三方”。`publish_task` 返回发起方专属的 `approvalSubscription`；发起方保存后，通过 `wait_for_approval` 接收审批、`submit_approval_decision` 提交原始ACP选项。也可使用常驻HTTP SSE。完整接口与规则见 [审批](docs/APPROVALS.md)。
+发布任务支持 `approvalTargets: ["subscriber"]`（默认）或 `[]`（用户审批）。网页用复选框展示“订阅者”和置灰的“第三方”。`mcp-mingting-tool` 返回发起方专属的 `approvalSubscription`；发起方保存后，通过 `wait_for_approval` 接收审批、`submit_approval_decision` 提交原始ACP选项。也可使用常驻HTTP SSE。完整接口与规则见 [审批](docs/APPROVALS.md)。
 
 ## 可靠性与执行归属
 

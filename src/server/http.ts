@@ -1,4 +1,4 @@
-import express from "express";
+import express, { type Request } from "express";
 import { randomBytes } from "node:crypto";
 import { resolve } from "node:path";
 import { z, ZodError } from "zod";
@@ -25,6 +25,17 @@ import { readApprovalHistory } from "./approval-history.js";
 import type { WakeupDelivery } from "./task-wakeup.js";
 import { dshWakeupRouter, type DshWakeupHost } from "./dsh-wakeup.js";
 import { wakeupAcknowledgementSchema } from "../shared/task-wakeup.js";
+import {
+  publisherContextKey,
+  publishTaskToolName,
+} from "../shared/dsh-wakeup.js";
+
+function withTaskUrl<T extends { taskId: string }>(req: Request, receipt: T) {
+  return {
+    ...receipt,
+    taskUrl: `http://${req.headers.host}/?task=${receipt.taskId}`,
+  };
+}
 
 type Config = {
   dbPath: string;
@@ -90,8 +101,10 @@ export function createPlatform(config: Config) {
     next();
   });
   app.use(express.json({ limit: LIMITS.httpBytes }));
-  if (config.dshWakeupHost)
-    app.use("/wakeup-host", dshWakeupRouter(service, config.dshWakeupHost));
+  const dshHost = config.dshWakeupHost
+    ? dshWakeupRouter(service, config.dshWakeupHost)
+    : undefined;
+  if (dshHost) app.use("/wakeup-host", dshHost.router);
   app.get("/api/bootstrap", (req, res) => {
     for (const [key, value] of sessions)
       if (value.expires < Date.now()) sessions.delete(key);
@@ -175,20 +188,12 @@ export function createPlatform(config: Config) {
       if (closed || blocked) return;
       dirty = false;
       const detail = taskId ? store.detail(taskId) : undefined;
-      const target = detail && store.wakeupTarget(detail.task.id);
-      const wakeup =
-        target && detail
-          ? {
-              target,
-              events: store
-                .taskWakeups(detail.task.id)
-                .map(({ id, type, status }) => ({ id, type, status })),
-            }
-          : undefined;
       const snapshot = {
         tasks: store.list(),
         harnesses: service.harnesses(),
-        detail: detail ? { ...detail, wakeup } : null,
+        detail: detail
+          ? { ...detail, wakeup: store.browserWakeupSummary(detail.task.id) }
+          : null,
         pendingApprovals: store.pendingApprovals(),
         serverTime: Date.now(),
       };
@@ -228,7 +233,11 @@ export function createPlatform(config: Config) {
     send();
   });
   app.post("/api/tasks", (req, res) =>
-    res.status(201).json(service.publish(publishTaskSchema.parse(req.body))),
+    res
+      .status(201)
+      .json(
+        withTaskUrl(req, service.publish(publishTaskSchema.parse(req.body))),
+      ),
   );
   app.get("/api/tasks/:id", (req, res) => {
     const d = store.detail(req.params.id);
@@ -288,11 +297,15 @@ export function createPlatform(config: Config) {
       req.headers.origin !== undefined ||
       req.headers["sec-fetch-site"] !== undefined
     )
-      return res.status(403).json({ error: "审批订阅接口仅供本机客户端使用" });
+      return res.status(403).json({ error: "任务订阅接口仅供本机客户端使用" });
     next();
   });
-  let approvalSubscriberCount = 0;
+  let taskSubscriberCount = 0;
   app.get("/subscriber/events", (req, res) => {
+    const view = z
+      .enum(["approval", "result"])
+      .default("approval")
+      .parse(req.query.view);
     const subscription = approvalSubscriptionSchema.parse({
       taskId: req.query.taskId,
       subscriptionToken: z
@@ -301,11 +314,17 @@ export function createPlatform(config: Config) {
         .parse(req.headers.authorization)
         .slice(7),
     });
-    service.approvalSnapshot(subscription);
-    if (approvalSubscriberCount >= LIMITS.subscribers)
-      throw new AppError(429, "审批订阅数量超限");
-    approvalSubscriberCount++;
+    const snapshot =
+      view === "result"
+        ? () => service.resultStatus(subscription)
+        : () => service.approvalSnapshot(subscription);
+    snapshot();
+    if (taskSubscriberCount >= LIMITS.subscribers)
+      throw new AppError(429, "任务订阅数量超限");
+    taskSubscriberCount++;
     let previous = "";
+    let blocked = false;
+    const sent = new Set<string>();
     res.status(200).set({
       "Content-Type": "text/event-stream",
       Connection: "keep-alive",
@@ -314,25 +333,45 @@ export function createPlatform(config: Config) {
     res.setTimeout(0);
     res.flushHeaders();
     const stop = () => res.end();
-    const send = () => {
-      if (res.writableEnded) return;
-      const data = JSON.stringify(service.approvalSnapshot(subscription));
-      if (data === previous) return;
-      previous = data;
-      if (!res.write(`event: approval.snapshot\ndata: ${data}\n\n`)) stop();
+    const write = (frame: string) => {
+      blocked = !res.write(frame);
     };
+    const send = () => {
+      if (res.writableEnded || blocked) return;
+      const data = JSON.stringify(snapshot());
+      if (data !== previous) {
+        previous = data;
+        const event = view === "result" ? "task.status" : "approval.snapshot";
+        write(`event: ${event}\ndata: ${data}\n\n`);
+      }
+      if (view !== "result" || blocked) return;
+      for (const event of service.resultEvents(subscription.taskId)) {
+        if (sent.has(event.eventId)) continue;
+        sent.add(event.eventId);
+        write(
+          `id: ${event.eventId}\nevent: task.completed\ndata: ${JSON.stringify(event)}\n\n`,
+        );
+        if (blocked) break;
+      }
+    };
+    const drain = () => {
+      blocked = false;
+      send();
+    };
+    res.on("drain", drain);
     const heartbeat = setInterval(() => {
-      if (!res.write(": heartbeat\n\n")) stop();
+      if (!res.writableEnded && !blocked) write(": heartbeat\n\n");
     }, LIMITS.subscriptionHeartbeatMs);
     service.events.on("changed", send);
     service.events.once("close", stop);
     res.once("close", () => {
-      approvalSubscriberCount--;
+      taskSubscriberCount--;
+      res.off("drain", drain);
       clearInterval(heartbeat);
       service.events.off("changed", send);
       service.events.off("close", stop);
     });
-    // Pending approvals are durable; a reconnect starts with the current task snapshot.
+    // Subscribe before reading the persisted snapshot and finished runs.
     send();
   });
   app.post("/subscriber/decision", (req, res) => {
@@ -467,11 +506,11 @@ export function createPlatform(config: Config) {
   app.post("/mcp", async (req, res) => {
     const mcp = new McpServer({ name: "task-platform-mvp", version: "0.2.0" });
     mcp.registerTool(
-      "publish_task",
+      publishTaskToolName,
       {
         title: "发布任务",
         description:
-          "发布任务；targetHarness 指定执行者。approvalTargets 默认 [subscriber]，也可 [] 仅由用户审批；third_party 尚在开发。返回的 approvalSubscription 仅供发起方保存，调用 wait_for_approval 接收审批、submit_approval_decision 提交意见。publisherName 为展示名。",
+          "发布任务并立即返回回执。resultSubscription 用于订阅执行结果。approvalTargets 默认 [subscriber]，也可 [] 由用户在明庭审批。订阅者审批沿用 approvalSubscription。",
         inputSchema: publishTaskSchema,
         annotations: {
           readOnlyHint: false,
@@ -480,9 +519,14 @@ export function createPlatform(config: Config) {
           openWorldHint: true,
         },
       },
-      async (input) => {
+      async (input, extra) => {
         try {
-          const result = service.publish(input);
+          const raw = extra._meta?.[publisherContextKey];
+          if (raw !== undefined && !dshHost)
+            throw new AppError(503, "明庭尚未配置 KMH 宿主");
+          const publisher =
+            raw === undefined ? undefined : dshHost?.publisher(req, raw);
+          const result = withTaskUrl(req, service.publish(input, publisher));
           return {
             content: [{ type: "text", text: JSON.stringify(result) }],
             structuredContent: result,
@@ -534,8 +578,7 @@ export function createPlatform(config: Config) {
       "wait_for_approval",
       {
         title: "订阅任务审批",
-        description:
-          "使用 publish_task 返回的 approvalSubscription 等待审批（每次最多25秒）。检查完整工具上下文并调用 submit_approval_decision；任务仍活动时持续等待。已提交意见的审批会保留在快照中。",
+        description: `使用 ${publishTaskToolName} 返回的 approvalSubscription 等待审批（每次最多25秒）。检查完整工具上下文并调用 submit_approval_decision；任务仍活动时持续等待。已提交意见的审批会保留在快照中。`,
         inputSchema: approvalWaitSchema,
         annotations: {
           readOnlyHint: true,

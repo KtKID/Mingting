@@ -208,7 +208,7 @@ if (process.argv[2] === "control") {
       started = Date.now();
       fingerprint = "";
       const result = await client.callTool({
-        name: "publish_task",
+        name: "mcp-mingting-tool",
         arguments: {
           title: target.title,
           description: `审批回放测试：${target.title}。本轮文件操作及模型响应使用回放输入。`,

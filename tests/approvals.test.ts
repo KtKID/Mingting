@@ -449,7 +449,7 @@ test("P9 publisher MCP waits before ACP permission, reviews it and yields to use
       new StreamableHTTPClientTransport(new URL(p.base + "/mcp")),
     );
     const published = await client.callTool({
-      name: "publish_task",
+      name: "mcp-mingting-tool",
       arguments: {
         title: "MCP 审批",
         description: "test",

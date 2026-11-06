@@ -6,7 +6,7 @@
 
 发布任务时可以多选审批对象，默认勾选“订阅者”；“第三方”显示为置灰的“开发中”。首版支持 `approvalTargets: ["subscriber"]` 和 `[]`（由用户审批）。协议保留 `third_party`，首版服务端对包含该值的发布返回 400，并保持任务列表原样。用户始终可以审批。
 
-`publish_task` 返回 `taskId` 和 `approvalSubscription: {taskId, subscriptionToken}`。任务专属凭据只返回给发起方，数据库保存凭据哈希；任务列表、网页快照、执行领取、审批通知均排除该凭据。`publisherName` 继续用于展示。
+`mcp-mingting-tool` 返回 `taskId` 和 `approvalSubscription: {taskId, subscriptionToken}`。任务专属凭据只返回给发起方，数据库保存凭据哈希；任务列表、网页快照、执行领取、审批通知均排除该凭据。`publisherName` 继续用于展示。
 
 发起方保存 `approvalSubscription` 后可选择以下接收方式：
 

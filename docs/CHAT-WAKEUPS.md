@@ -58,7 +58,7 @@ npm run chat:wakeup -- probe
 | MCP 工具                  | 输入与结果                                                                                                |
 | ------------------------- | --------------------------------------------------------------------------------------------------------- |
 | `get_wakeup_status`       | `{}`，返回 `{available, transport, error}`                                                                |
-| `publish_task`            | 原发布参数增加可选 `wakeup: {threadId, originTurnId}`；唤醒任务同时选择 subscriber 审批；返回原回执及绑定 |
+| `mcp-mingting-tool`            | 原发布参数增加可选 `wakeup: {threadId, originTurnId}`；唤醒任务同时选择 subscriber 审批；返回原回执及绑定 |
 | `get_task_wakeups`        | 原 `approvalSubscription`，返回此任务的目标与持久事件/投递状态                                            |
 | `acknowledge_task_wakeup` | 订阅对象加 `{eventId, threadId, turnId}`，记录新的恢复回合；相同确认幂等                                  |
 

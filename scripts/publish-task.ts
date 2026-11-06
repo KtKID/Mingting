@@ -16,7 +16,7 @@ try {
   );
   console.log(
     JSON.stringify(
-      await client.callTool({ name: "publish_task", arguments: input }),
+      await client.callTool({ name: "mcp-mingting-tool", arguments: input }),
       null,
       2,
     ),

@@ -8,7 +8,7 @@
 
 ## H2 定向发布
 
-MCP `publish_task` 可携带 targetHarness。服务对通知和领取同时匹配目标名称，大小写无关。指定目标离线时任务保持排队，目标恢复订阅后回放。省略目标沿用原来的可用连接器领取方式。既有单任务串行槽位与所有权校验继续生效。
+MCP `mcp-mingting-tool` 可携带 targetHarness。服务对通知和领取同时匹配目标名称，大小写无关。指定目标离线时任务保持排队，目标恢复订阅后回放。省略目标沿用原来的可用连接器领取方式。既有单任务串行槽位与所有权校验继续生效。
 
 ## H3 执行
 
@@ -63,7 +63,7 @@ node scripts/local-service.mjs stop
 
 ```json
 {
-  "name": "publish_task",
+  "name": "mcp-mingting-tool",
   "arguments": {
     "title": "打招呼",
     "description": "请只回复：你好，我是 Grok。",

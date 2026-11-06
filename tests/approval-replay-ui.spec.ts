@@ -98,7 +98,7 @@ for (const scenario of scenarios)
       );
       const title = "【录制回归 " + scenario.id + "】" + scenario.title;
       const published = await client.callTool({
-        name: "publish_task",
+        name: "mcp-mingting-tool",
         arguments: {
           title,
           description: "模型与工具使用固定的审批回放输入。",

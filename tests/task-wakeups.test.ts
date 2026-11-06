@@ -586,7 +586,7 @@ test("W9 HTTP MCP publishes a bound task and the authenticated browser sees wake
       new StreamableHTTPClientTransport(new URL(base + "/mcp")),
     );
     const publish = await client.callTool({
-      name: "publish_task",
+      name: "mcp-mingting-tool",
       arguments: {
         title: "test",
         description: "Read README",
@@ -633,7 +633,7 @@ test("W9 HTTP MCP publishes a bound task and the authenticated browser sees wake
       );
     };
     assert.deepEqual((await readSnapshot()).detail?.wakeup, {
-      target,
+      target: { sessionId: target.threadId, originTurn: target.originTurnId },
       events: [],
     });
     const bad = await client.callTool({
