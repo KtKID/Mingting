@@ -17,6 +17,9 @@ import {
   type ConnectorUpdate,
   type DeliveryEvent,
   type HarnessSubscription,
+  type HarnessIdentity,
+  type CapabilityReport,
+  type CapabilitySnapshot,
   type Approval,
   type SubscriberDecision,
   type ApprovalSubscription,
@@ -42,9 +45,14 @@ const now = () => new Date().toISOString();
 export class TaskService {
   private subscriptions = new Map<
     string,
-    { identity: HarnessSubscription; connections: number }
+    {
+      identity: HarnessIdentity;
+      connections: number;
+      generation?: string;
+      capabilities?: CapabilitySnapshot;
+    }
   >();
-  registerHarness(identity: HarnessSubscription) {
+  registerHarness(identity: HarnessIdentity, generation?: string) {
     const current = this.subscriptions.get(identity.ownerId);
     if (
       current &&
@@ -54,6 +62,10 @@ export class TaskService {
       throw new AppError(409, "ownerId 已绑定其他 harness");
     const entry = current ?? { identity, connections: 0 };
     entry.connections++;
+    if (generation) {
+      entry.generation = generation;
+      entry.capabilities = undefined;
+    }
     this.subscriptions.set(identity.ownerId, entry);
     this.events.emit("changed");
     let closed = false;
@@ -62,11 +74,29 @@ export class TaskService {
       closed = true;
       if (--entry.connections === 0)
         this.subscriptions.delete(identity.ownerId);
+      if (generation && entry.generation === generation) {
+        entry.generation = undefined;
+        entry.capabilities = undefined;
+      }
       this.events.emit("changed");
     };
   }
+  reportCapabilities(report: CapabilityReport) {
+    const entry = this.subscriptions.get(report.ownerId);
+    if (
+      !entry ||
+      entry.identity.harnessName !== "Codex" ||
+      entry.generation !== report.generation
+    )
+      throw new AppError(409, "能力快照不属于当前 Codex 连接");
+    entry.capabilities = report.capabilities;
+    this.events.emit("changed");
+  }
   harnesses(): HarnessSubscription[] {
-    return [...this.subscriptions.values()].map((s) => ({ ...s.identity }));
+    return [...this.subscriptions.values()].map((s) => ({
+      ...s.identity,
+      ...(s.capabilities ? { capabilities: s.capabilities } : {}),
+    }));
   }
   private resumeNotBefore = 0;
   private closed = false;
@@ -260,7 +290,7 @@ export class TaskService {
       signal?.removeEventListener("abort", stop);
     }
   }
-  claim(taskId: string, owner: Owner): Claim {
+  claim(taskId: string, owner: Owner, generation?: string): Claim {
     if (this.closed) throw new AppError(503, "服务正在停止");
     if (Date.now() < this.resumeNotBefore)
       throw new AppError(409, "重启后等待旧连接器停止");
@@ -268,7 +298,10 @@ export class TaskService {
     return this.store.transaction(() => {
       const t = this.store.task(taskId);
       if (!t) throw new AppError(404, "任务不存在");
-      const identity = this.subscriptions.get(owner.ownerId)?.identity;
+      const subscription = this.subscriptions.get(owner.ownerId);
+      if (generation && subscription?.generation !== generation)
+        throw new AppError(409, "领取请求不属于当前订阅连接");
+      const identity = subscription?.identity;
       if (
         t.targetHarness &&
         identity?.harnessName.toLowerCase() !== t.targetHarness.toLowerCase()
@@ -382,10 +415,46 @@ export class TaskService {
         if (r.sessionId && r.sessionId !== update.sessionId)
           throw new AppError(409, "不能切换运行会话");
         r.sessionId = update.sessionId;
+      } else if (update.type === "settings") {
+        const requested = t.requestedSettings;
+        const { receipt } = update;
+        if (
+          r.harnessName !== "Codex" ||
+          r.status === "cancelled" ||
+          r.sessionId !== update.sessionId ||
+          r.settingsReceipt ||
+          (receipt.status !== "rejected" && !r.sessionId) ||
+          (receipt.status === "default" && requested) ||
+          (receipt.status === "rejected" && (!requested || !receipt.reason)) ||
+          (receipt.status === "applied" &&
+            (!requested ||
+              (requested.modelId && requested.modelId !== receipt.modelId) ||
+              (requested.reasoningEffort &&
+                requested.reasoningEffort !== receipt.reasoningEffort)))
+        )
+          throw new AppError(409, "设置回执与当前运行不匹配");
+        r.settingsReceipt = receipt;
       } else if (update.type === "discovery") {
         if (!validateAcp("InitializeResponse", update.discovery))
           throw new AppError(400, "ACP 初始化结构无效");
         r.discovery = update.discovery;
+      } else if (update.type === "context") {
+        if (
+          r.harnessName !== "Codex" ||
+          update.sessionId !== r.sessionId ||
+          !r.settingsReceipt ||
+          r.settingsReceipt.status === "rejected"
+        )
+          throw new AppError(400, "上下文观测不属于当前 Codex 会话");
+        if (r.status !== "cancelled")
+          this.store.appendRunAudit({
+            kind: "context",
+            runId,
+            seq,
+            sessionId: update.sessionId,
+            createdAt: now(),
+            observation: update.observation,
+          });
       } else if (update.type === "notification") {
         if (
           !validateAcp("SessionNotification", update.notification) ||
@@ -394,11 +463,30 @@ export class TaskService {
           throw new AppError(400, "ACP 通知无效或会话不匹配");
         if (r.status !== "cancelled") {
           this.store.appendEvent(runId, update.notification);
-          applyProgress(r, update.notification);
+          const tool = applyProgress(r, update.notification);
+          if (tool && r.harnessName === "Codex")
+            this.store.appendRunAudit({
+              kind: "tool",
+              runId,
+              seq,
+              sessionId: update.notification.sessionId,
+              createdAt: now(),
+              ...tool,
+            });
         }
       } else if (update.type === "finished") {
         if (update.status === "succeeded" && update.stopReason !== "end_turn")
           throw new AppError(400, "完成状态必须来自 ACP end_turn");
+        if (update.usage) {
+          if (
+            r.harnessName !== "Codex" ||
+            update.usage.source.sessionId !== r.sessionId ||
+            !r.settingsReceipt ||
+            r.settingsReceipt.status === "rejected"
+          )
+            throw new AppError(400, "用量不属于当前 Codex 回合");
+          r.usage = update.usage;
+        }
         if (r.status !== "cancelled") {
           r.status = update.status;
           r.error = update.error ?? r.error;
@@ -560,6 +648,7 @@ export class TaskService {
     a.optionId = optionId;
     a.resolvedBy = source;
     this.store.transaction(() => {
+      a.resolvedAt = now();
       this.store.saveApproval(a);
       r.status = this.store.approvals(r.id).some((x) => x.status === "pending")
         ? "awaiting_approval"

@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
 import { createPlatform } from "../src/server/http.js";
-import { detailSchema } from "../src/shared/protocol.js";
+import { detailSchema, LIMITS } from "../src/shared/protocol.js";
 
 test("A2 process projection persists thoughts and merges tool patches; duplicate and stale reports are fenced", async () => {
   const dir = await mkdtemp(join(tmpdir(), "mingting-stream-"));
@@ -111,6 +111,93 @@ test("A2 process projection persists thoughts and merges tool patches; duplicate
         ...message,
         notification: { ...message.notification, sessionId: "old" },
       }),
+    );
+  } finally {
+    await p.service.close();
+    p.store.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("Codex tool audit persists patches and rolls back report sequence on audit write failure", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "mingting-tool-audit-"));
+  const p = createPlatform({
+    dbPath: join(dir, "tasks.sqlite"),
+    workspace: dir,
+  });
+  try {
+    const owner = { ownerId: randomUUID(), claimId: randomUUID() };
+    p.service.registerHarness({ ownerId: owner.ownerId, harnessName: "Codex" });
+    const { taskId } = p.service.publish({
+      title: "Audit",
+      description: "Read",
+      publisherName: "Test",
+      targetHarness: "Codex",
+    });
+    const { run } = p.service.claim(taskId, owner);
+    p.service.report(run.id, owner, 1, {
+      type: "session",
+      sessionId: "session",
+    });
+    const tool = {
+      type: "notification",
+      notification: {
+        sessionId: "session",
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: "c1",
+          title: "Read",
+          kind: "read",
+          rawInput: {
+            authorization: "secret-value",
+            file: "x".repeat(LIMITS.toolChars),
+          },
+        },
+      },
+    } as const;
+    const append = p.store.appendRunAudit.bind(p.store);
+    p.store.appendRunAudit = () => {
+      throw new Error("audit write failed");
+    };
+    assert.throws(
+      () => p.service.report(run.id, owner, 2, tool),
+      /audit write failed/,
+    );
+    assert.equal(p.store.lease(run.id)?.seq, 1);
+    assert.deepEqual(p.store.detail(taskId)?.events, []);
+    p.store.appendRunAudit = append;
+    p.service.report(run.id, owner, 2, tool);
+    assert.equal(p.service.report(run.id, owner, 2, tool).duplicate, true);
+    const [entry] = p.store.runAudit(run.id, 0, LIMITS.list);
+    assert.equal(entry?.kind, "tool");
+    if (entry?.kind === "tool") {
+      assert.equal(entry.toolCallId, "c1");
+      assert.equal(entry.patch.status, undefined);
+      assert.equal(entry.redacted, true);
+      assert.equal(entry.truncated, true);
+      assert.doesNotMatch(entry.patch.input ?? "", /secret-value/);
+    }
+    const categories = ["search", "execute", "edit", "other"] as const;
+    for (const [index, kind] of categories.entries()) {
+      p.service.report(run.id, owner, index + 3, {
+        type: "notification",
+        notification: {
+          sessionId: "session",
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: `c${index + 2}`,
+            kind,
+            title: kind === "other" ? "MCP tool" : kind,
+            status: "completed",
+          },
+        },
+      });
+    }
+    assert.deepEqual(
+      p.store
+        .runAudit(run.id, 0, LIMITS.list)
+        .map((event) => event.kind === "tool" && event.patch.kind),
+      ["read", ...categories],
     );
   } finally {
     await p.service.close();

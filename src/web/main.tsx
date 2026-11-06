@@ -12,11 +12,14 @@ import {
   LIMITS,
   publishResultSchema,
   browserSnapshotSchema,
+  auditPageSchema,
+  type AuditPage,
   type HarnessSubscription,
   type Bootstrap,
   type Task,
   type TaskDetail,
   type Approval,
+  type RunUsage,
 } from "../shared/protocol";
 import "./style.css";
 import { ApprovalCard } from "./approval-card";
@@ -25,6 +28,50 @@ const viewParams = new URLSearchParams(window.location.search);
 if (viewParams.get("theme") === "light")
   document.documentElement.dataset.theme = "light";
 const linkedTask = z.string().uuid().safeParse(viewParams.get("task"));
+const tokenNumber = new Intl.NumberFormat("zh-CN");
+const usageLabels = {
+  totalTokens: "总量",
+  uncachedInputTokens: "非缓存输入",
+  cachedReadTokens: "缓存读",
+  cachedWriteTokens: "缓存写",
+  outputTokens: "输出",
+  reasoningTokens: "思考（已含于输出）",
+} satisfies Record<
+  keyof Pick<
+    RunUsage,
+    | "totalTokens"
+    | "uncachedInputTokens"
+    | "cachedReadTokens"
+    | "cachedWriteTokens"
+    | "outputTokens"
+    | "reasoningTokens"
+  >,
+  string
+>;
+type UsageMetric = keyof typeof usageLabels;
+
+function UsageNumbers({
+  values,
+  overflow = [],
+}: {
+  values: Pick<RunUsage, UsageMetric>;
+  overflow?: UsageMetric[];
+}) {
+  return (
+    <ul>
+      {(Object.keys(usageLabels) as UsageMetric[]).map((key) => (
+        <li key={key}>
+          {usageLabels[key]}{" "}
+          {overflow.includes(key)
+            ? "超出安全汇总范围"
+            : values[key] === null
+              ? "未知"
+              : tokenNumber.format(values[key])}
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 const statusNames: Record<Task["status"], string> = {
   queued: "排队中",
@@ -132,9 +179,42 @@ function App() {
     linkedTask.success ? linkedTask.data : undefined,
   );
   const [detail, setDetail] = useState<TaskDetail>();
+  const [chosenRunId, setChosenRunId] = useState<string>();
+  const [audit, setAudit] = useState<AuditPage>();
+  const auditRequest = useRef(0);
+  const selectedRun =
+    detail?.runs.find((run) => run.id === chosenRunId) ?? detail?.runs[0];
+  useEffect(() => {
+    setChosenRunId(undefined);
+    setAudit(undefined);
+    auditRequest.current++;
+  }, [selected]);
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [form, setForm] = useState(false);
+  const [targetHarness, setTargetHarness] = useState("");
+  const [modelId, setModelId] = useState("");
+  const [reasoningEffort, setReasoningEffort] = useState("");
+  const codexSelected = targetHarness.trim() === "Codex";
+  const capabilities = harnesses.find(
+    (h) => h.harnessName === "Codex" && h.capabilities,
+  )?.capabilities;
+  const model = capabilities?.models.find(
+    (item) => item.id === (modelId || capabilities.defaultModelId),
+  );
+  const invalidSettings =
+    codexSelected &&
+    Boolean(
+      (modelId && !model) ||
+      (reasoningEffort &&
+        !model?.efforts.some((item) => item.id === reasoningEffort)),
+    );
+  function openForm() {
+    setTargetHarness("");
+    setModelId("");
+    setReasoningEffort("");
+    setForm(true);
+  }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [online, setOnline] = useState(true);
@@ -266,12 +346,37 @@ function App() {
       setBusy(false);
     }
   }
+  async function showAudit(cursor?: string) {
+    if (!selected || !selectedRun) return;
+    const request = ++auditRequest.current;
+    try {
+      const page = await api(
+        `/tasks/${selected}/runs/${selectedRun.id}/audit${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
+        auditPageSchema,
+      );
+      if (request !== auditRequest.current) return;
+      setAudit((old) =>
+        cursor && old?.runId === page.runId
+          ? { ...page, entries: [...old.entries, ...page.entries] }
+          : page,
+      );
+    } catch (e) {
+      if (request === auditRequest.current)
+        setError(e instanceof Error ? e.message : "读取审计失败");
+    }
+  }
   async function publish(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const data = new FormData(e.currentTarget);
     const values: Record<string, unknown> = Object.fromEntries(data);
     values.approvalTargets = data.getAll("approvalTargets");
     if (values.targetHarness === "") delete values.targetHarness;
+    if (invalidSettings) return;
+    if (codexSelected && (modelId || reasoningEffort))
+      values.requestedSettings = {
+        modelId: modelId || undefined,
+        reasoningEffort: reasoningEffort || undefined,
+      };
     setBusy(true);
     setError("");
     try {
@@ -353,7 +458,7 @@ function App() {
             <button
               className="primary new-task"
               disabled={!boot}
-              onClick={() => setForm(true)}
+              onClick={openForm}
             >
               <Icon name="plus" />
               发布任务
@@ -479,7 +584,7 @@ function App() {
                   <button
                     className="secondary"
                     disabled={!boot}
-                    onClick={() => setForm(true)}
+                    onClick={openForm}
                   >
                     <Icon name="plus" />
                     发布任务
@@ -561,6 +666,12 @@ function App() {
                 list="harness-options"
                 placeholder="留空由可用订阅者领取"
                 maxLength={40}
+                value={targetHarness}
+                onChange={(e) => {
+                  setTargetHarness(e.target.value);
+                  setModelId("");
+                  setReasoningEffort("");
+                }}
               />
               <datalist id="harness-options">
                 {[
@@ -575,6 +686,49 @@ function App() {
                 ))}
               </datalist>
             </label>
+            {codexSelected &&
+              (capabilities ? (
+                <>
+                  <label>
+                    模型
+                    <select
+                      value={modelId}
+                      onChange={(e) => {
+                        setModelId(e.target.value);
+                        setReasoningEffort("");
+                      }}
+                    >
+                      <option value="">沿用默认</option>
+                      {capabilities.models.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    思考档位
+                    <select
+                      value={reasoningEffort}
+                      onChange={(e) => setReasoningEffort(e.target.value)}
+                    >
+                      <option value="">沿用默认</option>
+                      {model?.efforts.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </>
+              ) : (
+                <p className="small muted">
+                  Codex 显式选项暂不可发现，仍可使用默认设置。
+                </p>
+              ))}
+            {invalidSettings && (
+              <p role="alert">当前选项已变更，请重新选择模型和档位。</p>
+            )}
             <fieldset className="approval-targets">
               <legend>
                 审批对象 <span>可同时选择</span>
@@ -621,7 +775,11 @@ function App() {
               >
                 取消
               </button>
-              <button type="submit" className="primary" disabled={busy}>
+              <button
+                type="submit"
+                className="primary"
+                disabled={busy || invalidSettings}
+              >
                 {busy ? "提交中…" : "发布任务"}
               </button>
             </div>
@@ -674,7 +832,7 @@ function App() {
                 <div>
                   <dt>执行器</dt>
                   <dd>
-                    {detail.runs[0]?.harnessName ?? "等待领取"}{" "}
+                    {selectedRun?.harnessName ?? "等待领取"}{" "}
                     {boot?.mode === "fake" ? "· 演示" : ""}
                   </dd>
                 </div>
@@ -682,12 +840,12 @@ function App() {
                   <dt>指定执行者</dt>
                   <dd>{detail.task.targetHarness ?? "任一可用订阅者"}</dd>
                 </div>
-                {detail.runs[0] && (
+                {selectedRun && (
                   <div>
                     <dt>连接协议</dt>
                     <dd>
-                      {detail.runs[0].discovery
-                        ? detail.runs[0].discovery.agentInfo?.name.includes(
+                      {selectedRun.discovery
+                        ? selectedRun.discovery.agentInfo?.name.includes(
                             "Mingting",
                           )
                           ? "ACP · ZCode 项目桥接"
@@ -701,27 +859,166 @@ function App() {
                   <dd className="mono">{boot?.workspace}</dd>
                 </div>
               </dl>
-              {detail.approvals.map((item) => approval(item))}
-              {detail.runs[0] && (
+              {detail.runs.length > 1 && (
+                <label>
+                  查看运行
+                  <select
+                    value={selectedRun?.id}
+                    onChange={(event) => {
+                      setChosenRunId(event.target.value);
+                      setAudit(undefined);
+                      auditRequest.current++;
+                    }}
+                  >
+                    {detail.runs.map((run, index) => (
+                      <option key={run.id} value={run.id}>
+                        {index === 0 ? "最新运行" : date(run.createdAt)} ·{" "}
+                        {run.id.slice(0, 8)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {detail.approvals
+                .filter((item) => item.runId === selectedRun?.id)
+                .map((item) => approval(item))}
+              {detail.usageSummary && (
+                <section aria-label="任务用量汇总">
+                  <h3>任务用量汇总</h3>
+                  <p>
+                    主回合 · {detail.usageSummary.runCount} 次已结束运行 ·{" "}
+                    {
+                      {
+                        complete: "完整",
+                        partial: "部分覆盖",
+                        missing: "未上报",
+                      }[detail.usageSummary.coverage]
+                    }
+                  </p>
+                  <UsageNumbers
+                    values={detail.usageSummary}
+                    overflow={detail.usageSummary.overflow}
+                  />
+                </section>
+              )}
+              {selectedRun && (
                 <section className="result">
                   <div className="section-title">
                     <Icon name="box" />
                     <h3>执行结果</h3>
                   </div>
-                  {detail.runs[0].error && (
-                    <p className="run-error">{detail.runs[0].error}</p>
+                  {selectedRun.error && (
+                    <p className="run-error">{selectedRun.error}</p>
+                  )}
+                  {selectedRun.harnessName === "Codex" && (
+                    <>
+                      <section aria-label="上下文">
+                        <h4>上下文</h4>
+                        <p>
+                          占用 / 会话有效窗口{" "}
+                          {selectedRun.context
+                            ? `${tokenNumber.format(selectedRun.context.usedTokens)} / ${tokenNumber.format(selectedRun.context.effectiveWindowTokens)} tokens · ACP 上报`
+                            : "未知"}
+                        </p>
+                        <p>
+                          模型标称窗口{" "}
+                          {selectedRun.settingsReceipt?.modelWindow ? (
+                            <a
+                              href={
+                                selectedRun.settingsReceipt.modelWindow
+                                  .sourceUrl
+                              }
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              {tokenNumber.format(
+                                selectedRun.settingsReceipt.modelWindow.tokens,
+                              )}{" "}
+                              tokens ·{" "}
+                              {selectedRun.settingsReceipt.modelWindow.basis}
+                            </a>
+                          ) : (
+                            "未知"
+                          )}
+                        </p>
+                      </section>
+                      <section aria-label="运行用量">
+                        <h4>运行用量</h4>
+                        {selectedRun.usage ? (
+                          <>
+                            <p>
+                              主回合 · {selectedRun.usage.source.method} ·{" "}
+                              {
+                                {
+                                  complete: "完整",
+                                  partial: "部分覆盖",
+                                  missing: "未上报",
+                                }[selectedRun.usage.coverage]
+                              }
+                            </p>
+                            <UsageNumbers values={selectedRun.usage} />
+                            {selectedRun.usage.inconsistent && (
+                              <p>上报总量与分项存在差异，保留原值。</p>
+                            )}
+                            {selectedRun.usage.missingReason && (
+                              <p>{selectedRun.usage.missingReason}</p>
+                            )}
+                          </>
+                        ) : (
+                          <p>
+                            {selectedRun.endedAt
+                              ? "用量未上报"
+                              : "等待回合结束"}
+                          </p>
+                        )}
+                      </section>
+                    </>
+                  )}
+                  {(selectedRun.harnessName === "Codex" ||
+                    detail.task.requestedSettings) && (
+                    <section aria-label="Codex 设置回执">
+                      <p>
+                        请求设置：
+                        {detail.task.requestedSettings?.modelId ??
+                          "默认"} /{" "}
+                        {detail.task.requestedSettings?.reasoningEffort ??
+                          "默认"}
+                      </p>
+                      {selectedRun.settingsReceipt &&
+                      selectedRun.settingsReceipt.status !== "rejected" ? (
+                        <>
+                          <p>
+                            生效设置：
+                            {selectedRun.settingsReceipt.modelId ??
+                              "未知"} /{" "}
+                            {selectedRun.settingsReceipt.reasoningEffort ??
+                              "未知"}
+                          </p>
+                          {selectedRun.settingsReceipt.status === "default" && (
+                            <p>沿用默认设置</p>
+                          )}
+                        </>
+                      ) : (
+                        <p>
+                          {selectedRun.settingsReceipt?.reason ??
+                            (selectedRun.endedAt
+                              ? "生效设置未知"
+                              : "等待设置回执")}
+                        </p>
+                      )}
+                    </section>
                   )}
                   <div className="live-label">
-                    {detail.runs[0].endedAt ? "回答" : "回答 · 实时接收中"}
+                    {selectedRun.endedAt ? "回答" : "回答 · 实时接收中"}
                   </div>
                   <pre className="answer-output">
-                    {detail.runs[0].output || "等待执行器返回内容…"}
+                    {selectedRun.output || "等待执行器返回内容…"}
                   </pre>
                   <details className="reasoning" open>
                     <summary>思考过程</summary>
                     <pre>
-                      {detail.runs[0].reasoning ||
-                        (detail.runs[0].endedAt
+                      {selectedRun.reasoning ||
+                        (selectedRun.endedAt
                           ? "本次执行器未提供思考内容"
                           : "等待执行器提供思考内容…")}
                     </pre>
@@ -729,18 +1026,16 @@ function App() {
                   <section className="tools" aria-label="工具状态">
                     <h4>
                       工具状态{" "}
-                      <span className="muted">
-                        {detail.runs[0].tools.length}
-                      </span>
+                      <span className="muted">{selectedRun.tools.length}</span>
                     </h4>
-                    {detail.runs[0].tools.length === 0 && (
+                    {selectedRun.tools.length === 0 && (
                       <p className="small muted">
-                        {detail.runs[0].endedAt
+                        {selectedRun.endedAt
                           ? "本次没有工具事件"
                           : "等待工具事件…"}
                       </p>
                     )}
-                    {detail.runs[0].tools.map((tool) => (
+                    {selectedRun.tools.map((tool) => (
                       <article className="tool-card" key={tool.id}>
                         <div className="tool-heading">
                           <strong>{tool.title}</strong>
@@ -765,10 +1060,89 @@ function App() {
                       </article>
                     ))}
                   </section>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => void showAudit()}
+                  >
+                    查看运行审计
+                  </button>
+                  {audit?.runId === selectedRun?.id && audit && (
+                    <section aria-label="运行审计">
+                      <h4>运行审计</h4>
+                      <p className="mono">{audit.runId}</p>
+                      {audit.entries
+                        .filter((entry) => entry.kind === "context")
+                        .map((entry) => (
+                          <p key={entry.seq}>
+                            上下文{" "}
+                            {tokenNumber.format(entry.observation.usedTokens)} /{" "}
+                            {tokenNumber.format(
+                              entry.observation.effectiveWindowTokens,
+                            )}{" "}
+                            tokens · {date(entry.createdAt)}
+                          </p>
+                        ))}
+                      {audit.entries
+                        .filter((entry) => entry.kind === "tool")
+                        .map((entry) => (
+                          <details key={entry.seq}>
+                            <summary>
+                              {entry.patch.title ?? entry.toolCallId} ·{" "}
+                              {entry.patch.status ?? "状态未上报"}
+                            </summary>
+                            <p>
+                              {entry.toolCallId} · {date(entry.createdAt)}
+                            </p>
+                            {entry.truncated && <p>内容已截断</p>}
+                            {entry.redacted && <p>内容已脱敏</p>}
+                            {entry.patch.input && (
+                              <pre>{entry.patch.input}</pre>
+                            )}
+                            {entry.patch.output && (
+                              <pre>{entry.patch.output}</pre>
+                            )}
+                          </details>
+                        ))}
+                      {audit.approvals.map((item) => (
+                        <details key={item.id}>
+                          <summary>
+                            审批 · {item.request.toolCall.toolCallId} ·{" "}
+                            {item.request.options.find(
+                              (option) => option.optionId === item.optionId,
+                            )?.name ?? item.status}
+                          </summary>
+                          <p>
+                            {item.resolvedBy ?? "待裁决"} ·{" "}
+                            {item.resolvedAt
+                              ? date(item.resolvedAt)
+                              : "裁决时间未知"}
+                          </p>
+                          <ul>
+                            {item.request.options.map((option) => (
+                              <li key={option.optionId}>
+                                {option.name} · {option.optionId}
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
+                      ))}
+                      {audit.nextCursor && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void showAudit(audit.nextCursor ?? undefined)
+                          }
+                        >
+                          加载更多
+                        </button>
+                      )}
+                    </section>
+                  )}
                   <p className="small muted">
                     共 {detail.runs.length} 次执行
-                    {detail.runs[0].stopReason
-                      ? ` · ${detail.runs[0].stopReason}`
+                    {selectedRun.stopReason
+                      ? ` · ${selectedRun.stopReason}`
                       : ""}
                   </p>
                 </section>

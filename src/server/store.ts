@@ -12,6 +12,9 @@ import {
   taskSchema,
   runSchema,
   approvalSchema,
+  runAuditSchema,
+  usageCountsSchema,
+  type RunAudit,
   eventSchema,
   deliveryEventSchema,
   type DeliveryEvent,
@@ -24,6 +27,50 @@ import {
   type WakeupTarget,
 } from "../shared/task-wakeup.js";
 const now = () => new Date().toISOString();
+
+function summarizeUsage(runs: Run[]): TaskDetail["usageSummary"] {
+  const finished = runs.filter((run) => run.endedAt);
+  if (!finished.some((run) => run.harnessName === "Codex" || run.usage)) return;
+  const usage = finished.flatMap((run) =>
+    run.usage?.scope === "primary_prompt" &&
+    run.usage.basis === "token_breakdown_v1"
+      ? [run.usage]
+      : [],
+  );
+  const overflow: NonNullable<TaskDetail["usageSummary"]>["overflow"] = [];
+  const counts = usageCountsSchema.parse(
+    Object.fromEntries(
+      usageCountsSchema.keyof().options.map((key) => {
+        const values = usage
+          .map((entry) => entry[key])
+          .filter((value) => value !== null);
+        if (!values.length) return [key, null];
+        const total = values.reduce((sum, value) => sum + BigInt(value), 0n);
+        if (total > BigInt(Number.MAX_SAFE_INTEGER)) {
+          overflow.push(key);
+          return [key, null];
+        }
+        return [key, Number(total)];
+      }),
+    ),
+  );
+  return {
+    ...counts,
+    scope: "primary_prompt",
+    basis: "token_breakdown_v1",
+    runCount: finished.length,
+    overflow,
+    coverage:
+      usage.length === finished.length &&
+      usage.every((entry) => entry.coverage === "complete") &&
+      !overflow.length
+        ? "complete"
+        : usage.some((entry) => entry.coverage !== "missing")
+          ? "partial"
+          : "missing",
+  };
+}
+
 export class Store {
   private db: DatabaseSync;
   onChange = () => {};
@@ -44,6 +91,8 @@ export class Store {
       CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT REFERENCES runs(id), data TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS runs_task ON runs(task_id); CREATE INDEX IF NOT EXISTS approvals_run ON approvals(run_id);
       CREATE INDEX IF NOT EXISTS events_run ON events(run_id);
+      CREATE TABLE IF NOT EXISTS run_audit (run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE, seq INTEGER NOT NULL, kind TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(run_id,seq));
+      CREATE INDEX IF NOT EXISTS run_audit_context ON run_audit(run_id,seq DESC) WHERE kind='context';
       CREATE TABLE IF NOT EXISTS runtime_metadata (key TEXT PRIMARY KEY,value INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS approval_subscribers (task_id TEXT PRIMARY KEY REFERENCES tasks(id),token_hash TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS deliveries (id INTEGER PRIMARY KEY AUTOINCREMENT,task_id TEXT REFERENCES tasks(id),created_at TEXT NOT NULL);
@@ -246,13 +295,46 @@ export class Store {
       )
       .run(runId, runId, LIMITS.events);
   }
+  appendRunAudit(entry: RunAudit) {
+    const audit = runAuditSchema.parse(entry);
+    this.db
+      .prepare("INSERT INTO run_audit VALUES(?,?,?,?)")
+      .run(audit.runId, audit.seq, audit.kind, JSON.stringify(audit));
+    this.changed();
+  }
+  runAudit(runId: string, after: number, limit: number): RunAudit[] {
+    return this.db
+      .prepare(
+        "SELECT data FROM run_audit WHERE run_id=? AND seq>? ORDER BY seq LIMIT ?",
+      )
+      .all(runId, after, limit)
+      .map((row) => runAuditSchema.parse(JSON.parse(String(row.data))));
+  }
+  latestContext(runId: string) {
+    const row = this.db
+      .prepare(
+        "SELECT data FROM run_audit WHERE run_id=? AND kind='context' ORDER BY seq DESC LIMIT 1",
+      )
+      .get(runId);
+    const audit = row && runAuditSchema.parse(JSON.parse(String(row.data)));
+    return audit?.kind === "context" ? audit.observation : undefined;
+  }
   detail(id: string): TaskDetail | undefined {
     const task = this.task(id);
     if (!task) return;
     const runs = this.db
       .prepare("SELECT data FROM runs WHERE task_id=? ORDER BY rowid DESC")
       .all(id)
-      .map((r) => runSchema.parse(JSON.parse(r.data as string)));
+      .map((r) => {
+        const run = runSchema.parse(JSON.parse(r.data as string));
+        return {
+          ...run,
+          context:
+            run.harnessName === "Codex"
+              ? this.latestContext(run.id)
+              : undefined,
+        };
+      });
     const approvals = runs.flatMap((r) => this.approvals(r.id));
     const events = task.currentRunId
       ? this.db
@@ -262,7 +344,13 @@ export class Store {
             eventSchema.parse({ ...JSON.parse(r.data as string), id: r.id }),
           )
       : [];
-    return { task, runs, approvals, events };
+    return {
+      task,
+      runs,
+      approvals,
+      events,
+      usageSummary: summarizeUsage(runs),
+    };
   }
   run(id: string): Run | undefined {
     const row = this.db.prepare("SELECT data FROM runs WHERE id=?").get(id);

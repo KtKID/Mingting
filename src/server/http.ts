@@ -13,6 +13,7 @@ import {
   reportSchema,
   permissionSubmissionSchema,
   harnessSubscriptionSchema,
+  capabilityReportSchema,
   approvalSubscriptionSchema,
   subscriberDecisionSchema,
   approvalWaitSchema,
@@ -219,6 +220,43 @@ export function createPlatform(config: Config) {
     if (!d) throw new AppError(404, "任务不存在");
     res.json(d);
   });
+  app.get("/api/tasks/:id/runs/:runId/audit", (req, res) => {
+    const run = store.run(req.params.runId);
+    if (!run || run.taskId !== req.params.id)
+      throw new AppError(404, "任务运行不存在");
+    const limit = z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(LIMITS.list)
+      .default(LIMITS.list)
+      .parse(req.query.limit);
+    const cursor = z.string().optional().parse(req.query.cursor);
+    let after = 0;
+    if (cursor !== undefined) {
+      const [runId, seq, extra] = cursor.split(":");
+      if (
+        runId !== run.id ||
+        !seq ||
+        !/^\d+$/.test(seq) ||
+        !Number.isSafeInteger(Number(seq)) ||
+        extra !== undefined
+      )
+        throw new AppError(400, "审计游标无效或不属于本次运行");
+      after = Number(seq);
+    }
+    const rows = store.runAudit(run.id, after, limit + 1);
+    const entries = rows.slice(0, limit);
+    const last = entries.at(-1);
+    res.json({
+      runId: run.id,
+      entries,
+      approvals: store
+        .approvals(run.id)
+        .filter((approval) => approval.sessionId === run.sessionId),
+      nextCursor: rows.length > limit && last ? `${run.id}:${last.seq}` : null,
+    });
+  });
   app.post("/api/tasks/:id/cancel", (req, res) => {
     service.cancel(req.params.id);
     res.json({ ok: true });
@@ -319,7 +357,13 @@ export function createPlatform(config: Config) {
             ownerId: req.headers["x-owner-id"],
           })
         : undefined;
-    const unregister = identity ? service.registerHarness(identity) : () => {};
+    const generation = z
+      .uuid()
+      .optional()
+      .parse(req.headers["x-connector-generation"]);
+    const unregister = identity
+      ? service.registerHarness(identity, generation)
+      : () => {};
     subscriberCount++;
     let cursor = after,
       closed = false;
@@ -370,10 +414,15 @@ export function createPlatform(config: Config) {
     } while (page.length === 200 && !res.writableEnded);
     if (!res.writableEnded) res.write(": subscribed\n\n");
   });
+  app.post("/connector/capabilities", (req, res) => {
+    service.reportCapabilities(capabilityReportSchema.parse(req.body));
+    res.json({ accepted: true });
+  });
   app.post("/connector/claim", (req, res) => {
-    const body = claimTaskSchema.parse(req.body);
-    const { taskId, ...owner } = body;
-    res.json(service.claim(taskId, owner));
+    const { taskId, generation, ...owner } = claimTaskSchema
+      .extend({ generation: z.uuid().optional() })
+      .parse(req.body);
+    res.json(service.claim(taskId, owner, generation));
   });
   app.post("/connector/runs/:id/heartbeat", (req, res) =>
     res.json(service.heartbeat(req.params.id, ownerSchema.parse(req.body))),

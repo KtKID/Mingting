@@ -268,6 +268,15 @@ test("P4 user-first decision is final; other task credentials and invalid option
     );
     p.service.decide(a.approvalId, a.choice("no"));
     assert.equal(a.approval().resolvedBy, "user");
+    assert.equal(a.approval().optionId, "no");
+    assert.ok(a.approval().resolvedAt, "persist final decision time");
+    assert.deepEqual(
+      p.service.permissionResult(a.run.id, a.owner, a.approvalId),
+      {
+        status: "resolved",
+        response: { outcome: { outcome: "selected", optionId: "no" } },
+      },
+    );
     assert.deepEqual(a.approval().reviewerDecisions, []);
     assert.equal(a.approval().fallbackAt, null);
     assert.throws(() => p.service.decideSubscriber(a.review("yes")), /失效/);

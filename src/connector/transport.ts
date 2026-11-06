@@ -2,7 +2,7 @@ import {
   deliveryEventSchema,
   type DeliveryEvent,
   LIMITS,
-  type HarnessSubscription,
+  type HarnessIdentity,
 } from "../shared/protocol.js";
 export function localBase(value: string) {
   const u = new URL(value);
@@ -48,7 +48,8 @@ export async function* subscribe(
   base: string,
   after: number,
   signal: AbortSignal,
-  identity?: HarnessSubscription,
+  identity?: HarnessIdentity & { generation?: string },
+  onConnected?: () => void,
 ): AsyncGenerator<DeliveryEvent> {
   const r = await fetch(localBase(base) + "/connector/events", {
     headers: {
@@ -58,6 +59,9 @@ export async function* subscribe(
         ? {
             "x-harness-name": identity.harnessName,
             "x-owner-id": identity.ownerId,
+            ...(identity.generation
+              ? { "x-connector-generation": identity.generation }
+              : {}),
           }
         : {}),
     },
@@ -68,6 +72,7 @@ export async function* subscribe(
   const decoder = new TextDecoder();
   let buffered = "";
   try {
+    onConnected?.();
     while (true) {
       const next = await reader.read();
       if (next.done) return;

@@ -23,6 +23,67 @@ test.afterEach(async ({ page }) => {
       });
   }
 });
+test("Codex publishing form offers per-model effort and displays the receipt", async ({
+  page,
+}, info) => {
+  const title = `Codex 设置 ${info.project.name}`;
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "发布任务", exact: true })
+    .first()
+    .click();
+  const form = page.getByRole("dialog", { name: "发布任务" });
+  await form.getByLabel("任务标题").fill(title);
+  await form.getByLabel("任务描述").fill("[settings-check]");
+  await form.getByLabel("发布人名字").fill("验证");
+  await form.getByLabel("执行者").fill("Codex");
+  await expect(
+    form
+      .getByRole("combobox", { name: "模型", exact: true })
+      .locator('option[value="B"]'),
+  ).toHaveCount(1, { timeout: 4000 });
+  await form
+    .getByRole("combobox", { name: "模型", exact: true })
+    .selectOption("B");
+  await form
+    .getByRole("combobox", { name: "思考档位", exact: true })
+    .selectOption("high");
+  await form.getByRole("button", { name: "发布任务", exact: true }).click();
+  const detail = page.getByRole("dialog", { name: "任务详情" });
+  await expect(detail.getByText("生效设置：B / high")).toBeVisible();
+  await expect(detail.locator(".answer-output")).toHaveText("executed:B/high");
+});
+
+test("Codex metering view separates task Usage from latest and historical context", async ({
+  page,
+}, info) => {
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "发布任务", exact: true })
+    .first()
+    .click();
+  const form = page.getByRole("dialog", { name: "发布任务" });
+  await form.getByLabel("任务标题").fill(`计量 ${info.project.name}`);
+  await form.getByLabel("任务描述").fill("[usage-check]");
+  await form.getByLabel("发布人名字").fill("验证");
+  await form.getByLabel("执行者").fill("Codex");
+  await form.getByRole("button", { name: "发布任务", exact: true }).click();
+  const detail = page.getByRole("dialog", { name: "任务详情" });
+  await expect(detail.getByRole("region", { name: "运行用量" })).toContainText(
+    "总量 28",
+    { timeout: 8000 },
+  );
+  await expect(detail.getByRole("region", { name: "上下文" })).toContainText(
+    "10 / 76,000",
+  );
+  await expect(
+    detail.getByRole("region", { name: "任务用量汇总" }),
+  ).toContainText("总量 28");
+  await detail.getByRole("button", { name: "查看运行审计" }).click();
+  await expect(detail.getByRole("region", { name: "运行审计" })).toContainText(
+    "28 / 76,000",
+  );
+});
 test("A4 answer, reasoning and tools arrive before completion; reconnect and refresh preserve one tool", async ({
   page,
   context,
@@ -59,6 +120,12 @@ test("A4 answer, reasoning and tools arrive before completion; reconnect and ref
   await expect(d.locator(".tool-status")).toHaveText("已完成");
   await expect(d.locator(".answer-output")).toContainText(
     "selected:allow-once",
+  );
+  await d
+    .getByRole("button", { name: "查看运行审计" })
+    .click({ timeout: 4000 });
+  await expect(d.getByRole("region", { name: "运行审计" })).toContainText(
+    "允许一次",
   );
   await page.reload();
   await page.getByRole("button", { name: "查看任务：" + title }).click();

@@ -11,6 +11,7 @@ import { createPlatform } from "../src/server/http.js";
 import { subscribe, post } from "../src/connector/transport.js";
 import {
   claimResultSchema,
+  LIMITS,
   publishResultSchema,
 } from "../src/shared/protocol.js";
 
@@ -28,11 +29,19 @@ async function fixture() {
     throw new Error("missing address");
   const base = `http://127.0.0.1:${address.port}`;
   const controllers: AbortController[] = [];
-  const connect = async (harnessName: string, ownerId = randomUUID()) => {
+  const connect = async (
+    harnessName: string,
+    ownerId = randomUUID(),
+    generation?: string,
+  ) => {
     const stop = new AbortController();
     controllers.push(stop);
     const response = await fetch(base + "/connector/events", {
-      headers: { "x-harness-name": harnessName, "x-owner-id": ownerId },
+      headers: {
+        "x-harness-name": harnessName,
+        "x-owner-id": ownerId,
+        ...(generation ? { "x-connector-generation": generation } : {}),
+      },
       signal: stop.signal,
     });
     return { response, stop, ownerId };
@@ -52,6 +61,58 @@ async function fixture() {
     },
   };
 }
+
+test("Codex capability snapshots are scoped to the current SSE connection generation", async () => {
+  const p = await fixture();
+  try {
+    const ownerId = randomUUID();
+    const generation = randomUUID();
+    const first = await p.connect("Codex", ownerId, generation);
+    const snapshot = {
+      models: [
+        {
+          id: "A",
+          name: "Model A",
+          efforts: [{ id: "medium", name: "Medium" }],
+        },
+        { id: "B", name: "Model B", efforts: [{ id: "high", name: "High" }] },
+      ],
+      defaultModelId: "A",
+      source: "acp_session_config",
+    };
+    const update = (gen: string, capabilities: unknown, origin?: string) =>
+      fetch(p.base + "/connector/capabilities", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(origin ? { origin } : {}),
+        },
+        body: JSON.stringify({ ownerId, generation: gen, capabilities }),
+      });
+    assert.equal((await update(generation, snapshot)).status, 200);
+    assert.deepEqual(p.service.harnesses()[0]?.capabilities, snapshot);
+    assert.equal((await update(generation, snapshot, p.base)).status, 403);
+    assert.equal(
+      (
+        await update(generation, {
+          ...snapshot,
+          models: Array(LIMITS.list + 1).fill(snapshot.models[0]),
+        })
+      ).status,
+      400,
+    );
+    const next = randomUUID();
+    const second = await p.connect("Codex", ownerId, next);
+    assert.equal(p.service.harnesses()[0]?.capabilities, undefined);
+    assert.equal((await update(generation, snapshot)).status, 409);
+    assert.equal((await update(next, snapshot)).status, 200);
+    first.stop.abort();
+    assert.deepEqual(p.service.harnesses()[0]?.capabilities, snapshot);
+    second.stop.abort();
+  } finally {
+    await p.close();
+  }
+});
 
 test("T1 identity is bound to live SSE connections, duplicate connections and conflicts", async () => {
   const p = await fixture();

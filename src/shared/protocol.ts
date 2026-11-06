@@ -51,23 +51,116 @@ export const harnessSubscriptionSchema = z
     harnessName: harnessNameSchema,
   })
   .strict();
-export const harnessListSchema = z.array(harnessSubscriptionSchema);
-export type HarnessSubscription = z.infer<typeof harnessSubscriptionSchema>;
+const capabilityOptionSchema = z.strictObject({
+  id: z.string().min(1).max(160),
+  name: z.string().min(1).max(160),
+});
+export const capabilitySnapshotSchema = z.strictObject({
+  models: z
+    .array(
+      capabilityOptionSchema.extend({
+        efforts: z.array(capabilityOptionSchema).max(LIMITS.list),
+      }),
+    )
+    .min(1)
+    .max(LIMITS.list),
+  defaultModelId: z.string().min(1).max(160).nullable(),
+  source: z.literal("acp_session_config"),
+});
+export const capabilityReportSchema = z.strictObject({
+  ownerId: z.uuid(),
+  generation: z.uuid(),
+  capabilities: capabilitySnapshotSchema,
+});
+export const harnessViewSchema = harnessSubscriptionSchema.extend({
+  capabilities: capabilitySnapshotSchema.optional(),
+});
+export const harnessListSchema = z.array(harnessViewSchema);
+export type HarnessIdentity = z.infer<typeof harnessSubscriptionSchema>;
+export type HarnessSubscription = z.infer<typeof harnessViewSchema>;
+export type CapabilitySnapshot = z.infer<typeof capabilitySnapshotSchema>;
+export type CapabilityReport = z.infer<typeof capabilityReportSchema>;
 export const approvalTargetSchema = z.enum(["subscriber", "third_party"]);
 export const approvalTargetsSchema = z
   .array(approvalTargetSchema)
   .max(2)
   .refine((targets) => new Set(targets).size === targets.length);
-export const publishTaskSchema = z
+const optionId = z.string().trim().min(1).max(160);
+const tokens = z.number().int().nonnegative();
+export const requestedSettingsSchema = z
+  .strictObject({
+    modelId: optionId.optional(),
+    reasoningEffort: optionId.optional(),
+  })
+  .refine(
+    (value) =>
+      value.modelId !== undefined || value.reasoningEffort !== undefined,
+  );
+export const modelWindowSchema = z.object({
+  tokens: tokens.positive(),
+  provider: z.string(),
+  modelId: optionId,
+  basis: z.string(),
+  observedOn: z.string(),
+  sourceUrl: z.url(),
+});
+export const settingsReceiptSchema = z.strictObject({
+  status: z.enum(["applied", "default", "rejected"]),
+  modelId: optionId.nullable(),
+  reasoningEffort: optionId.nullable(),
+  confirmedAt: z.iso.datetime(),
+  reason: z.string().max(2000).nullable(),
+  modelWindow: modelWindowSchema.nullable(),
+});
+export const usageCountsSchema = z.object({
+  uncachedInputTokens: tokens.nullable(),
+  cachedReadTokens: tokens.nullable(),
+  cachedWriteTokens: tokens.nullable(),
+  outputTokens: tokens.nullable(),
+  reasoningTokens: tokens.nullable(),
+  totalTokens: tokens.nullable(),
+});
+export const runUsageSchema = usageCountsSchema.extend({
+  scope: z.literal("primary_prompt"),
+  basis: z.literal("token_breakdown_v1"),
+  coverage: z.enum(["complete", "partial", "missing"]),
+  inconsistent: z.boolean(),
+  modelId: optionId.nullable(),
+  missingReason: z.string().optional(),
+  source: z.object({
+    wireFormat: z.string(),
+    adapterVersion: z.string(),
+    protocolVersion: z.number().int().positive(),
+    method: z.string(),
+    fieldPath: z.string(),
+    sessionId: z.string().min(1),
+  }),
+});
+export const contextObservationSchema = z.strictObject({
+  usedTokens: tokens,
+  effectiveWindowTokens: tokens.positive(),
+  source: z.literal("acp_usage_update"),
+});
+export type RequestedSettings = z.infer<typeof requestedSettingsSchema>;
+export type SettingsReceipt = z.infer<typeof settingsReceiptSchema>;
+export type RunUsage = z.infer<typeof runUsageSchema>;
+export type ContextObservation = z.infer<typeof contextObservationSchema>;
+
+const publishFieldsSchema = z
   .object({
     title: z.string().trim().min(1).max(160),
     description: z.string().trim().min(1).max(16000),
     publisherName: z.string().trim().min(1).max(80),
     targetHarness: harnessNameSchema.optional(),
+    requestedSettings: requestedSettingsSchema.optional(),
     approvalTargets: approvalTargetsSchema.optional(),
     wakeup: wakeupTargetSchema.optional(),
   })
   .strict();
+export const publishTaskSchema = publishFieldsSchema.refine(
+  (task) => !task.requestedSettings || task.targetHarness === "Codex",
+  { path: ["targetHarness"], message: "显式模型设置仅支持 Codex 任务" },
+);
 export const taskStatusSchema = z.enum([
   "queued",
   "running",
@@ -77,7 +170,7 @@ export const taskStatusSchema = z.enum([
   "cancelled",
   "interrupted",
 ]);
-export const taskSchema = publishTaskSchema.omit({ wakeup: true }).extend({
+export const taskSchema = publishFieldsSchema.omit({ wakeup: true }).extend({
   approvalTargets: approvalTargetsSchema.default(["subscriber"]),
   id: z.string(),
   status: taskStatusSchema,
@@ -93,6 +186,26 @@ export const toolSchema = z.object({
   input: z.string(),
   output: z.string(),
 });
+const auditKeySchema = z.object({
+  runId: z.string().min(1),
+  seq: z.number().int().positive(),
+  sessionId: z.string().min(1),
+  createdAt: z.iso.datetime(),
+});
+export const runAuditSchema = z.discriminatedUnion("kind", [
+  auditKeySchema.extend({
+    kind: z.literal("tool"),
+    toolCallId: z.string().min(1),
+    patch: toolSchema.omit({ id: true }).partial(),
+    truncated: z.boolean(),
+    redacted: z.boolean(),
+  }),
+  auditKeySchema.extend({
+    kind: z.literal("context"),
+    observation: contextObservationSchema,
+  }),
+]);
+export type RunAudit = z.infer<typeof runAuditSchema>;
 export const runSchema = z.object({
   id: z.string(),
   taskId: z.string(),
@@ -108,6 +221,9 @@ export const runSchema = z.object({
   discovery: z.custom<InitializeResponse>().nullable(),
   ownerId: z.string().nullable().default(null),
   harnessName: harnessNameSchema.nullable().default(null),
+  settingsReceipt: settingsReceiptSchema.optional(),
+  usage: runUsageSchema.optional(),
+  context: contextObservationSchema.optional(),
 });
 // ACP payloads are validated by the official SDK at the transport boundary. No handwritten ACP wire schema.
 export const approvalChoiceSchema = z.object({
@@ -129,6 +245,7 @@ export const approvalSchema = z.object({
   status: z.enum(["pending", "decided", "expired"]),
   optionId: z.string().nullable(),
   createdAt: z.string(),
+  resolvedAt: z.iso.datetime().nullable().optional(),
   reviewerDecisions: z
     .array(approvalChoiceSchema.extend({ target: approvalTargetSchema }))
     .default([]),
@@ -145,11 +262,27 @@ export const eventSchema = z.object({
   createdAt: z.string(),
   notification: z.custom<SessionNotification>(),
 });
+export const auditPageSchema = z.object({
+  runId: z.string(),
+  entries: z.array(runAuditSchema),
+  approvals: z.array(approvalSchema),
+  nextCursor: z.string().nullable(),
+});
+export type AuditPage = z.infer<typeof auditPageSchema>;
 export const detailSchema = z.object({
   task: taskSchema,
   runs: z.array(runSchema),
   approvals: z.array(approvalSchema),
   events: z.array(eventSchema),
+  usageSummary: usageCountsSchema
+    .extend({
+      scope: runUsageSchema.shape.scope,
+      basis: runUsageSchema.shape.basis,
+      coverage: runUsageSchema.shape.coverage,
+      runCount: z.number().int().positive(),
+      overflow: z.array(usageCountsSchema.keyof()),
+    })
+    .optional(),
 });
 export const browserSnapshotSchema = z.object({
   tasks: z.array(taskSchema),
@@ -239,6 +372,11 @@ export const claimResultSchema = z.object({
 });
 export const connectorUpdateSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("session"), sessionId: z.string().min(1) }),
+  z.strictObject({
+    type: z.literal("settings"),
+    sessionId: z.string().min(1).nullable(),
+    receipt: settingsReceiptSchema,
+  }),
   z.object({
     type: z.literal("discovery"),
     discovery: z.custom<InitializeResponse>(),
@@ -247,11 +385,17 @@ export const connectorUpdateSchema = z.discriminatedUnion("type", [
     type: z.literal("notification"),
     notification: z.custom<SessionNotification>(),
   }),
+  z.strictObject({
+    type: z.literal("context"),
+    sessionId: z.string().min(1),
+    observation: contextObservationSchema,
+  }),
   z.object({
     type: z.literal("finished"),
     status: z.enum(["succeeded", "failed", "cancelled", "interrupted"]),
     stopReason: z.string().nullable(),
     error: z.string().max(2000).nullable(),
+    usage: runUsageSchema.optional(),
   }),
 ]);
 export const reportSchema = ownerSchema

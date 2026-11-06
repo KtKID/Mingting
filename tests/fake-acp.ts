@@ -1,14 +1,39 @@
 // A real child process speaking ACP using the official SDK; never executes commands or calls a model.
 import { Readable, Writable } from "node:stream";
 import { randomUUID } from "node:crypto";
+import { appendFileSync } from "node:fs";
 import {
   agent,
   methods,
   ndJsonStream,
   PROTOCOL_VERSION,
+  type SessionConfigOption,
 } from "@agentclientprotocol/sdk";
 const sessionId = randomUUID();
 const grok = process.env.FAKE_GROK === "1";
+let model = "A";
+let effort = "medium";
+let finishOnCancel: (() => void) | undefined;
+const options = (): SessionConfigOption[] => [
+  {
+    id: "model",
+    name: "Model",
+    category: "model",
+    type: "select",
+    currentValue: model,
+    options: ["A", "B"].map((value) => ({ value, name: `Model ${value}` })),
+  },
+  {
+    id: "reasoning_effort",
+    name: "Effort",
+    category: "thought_level",
+    type: "select",
+    currentValue: effort,
+    options: (model === "A" ? ["low", "medium"] : ["low", "high"]).map(
+      (value) => ({ value, name: value }),
+    ),
+  },
+];
 let authenticated = false;
 const modes = {
   currentModeId: "workspace-write",
@@ -31,14 +56,103 @@ const connection = agent({ name: "fake-codex-acp" })
     return {};
   })
   .onRequest(methods.agent.session.new, () =>
-    grok ? { sessionId } : { sessionId, modes },
+    grok ? { sessionId } : { sessionId, modes, configOptions: options() },
   )
   .onRequest(methods.agent.session.setMode, () => ({}))
-  .onNotification(methods.agent.session.cancel, () => {})
+  .onRequest(methods.agent.session.setConfigOption, ({ params }) => {
+    if (
+      params.configId === "model" &&
+      (params.value === "A" || params.value === "B")
+    ) {
+      model = process.env.FAKE_SETTINGS_MISMATCH === "1" ? "A" : params.value;
+      effort = model === "A" ? "medium" : "low";
+    } else if (
+      params.configId === "reasoning_effort" &&
+      options().some(
+        (option) =>
+          option.id === params.configId &&
+          option.type === "select" &&
+          option.options.some(
+            (choice) => "value" in choice && choice.value === params.value,
+          ),
+      )
+    ) {
+      effort = String(params.value);
+    } else {
+      throw new Error("unsupported selection");
+    }
+    return { configOptions: options() };
+  })
+  .onNotification(methods.agent.session.cancel, () => finishOnCancel?.())
   .onRequest(methods.agent.session.prompt, async (ctx) => {
     const prompt = ctx.params.prompt
       .map((p) => (p.type === "text" ? p.text : ""))
       .join("");
+    if (prompt.includes("[cancel-usage]")) {
+      const cancelled = new Promise<void>((resolve) => {
+        finishOnCancel = resolve;
+      });
+      await ctx.client.notify(methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "waiting for cancellation" },
+        },
+      });
+      await cancelled;
+      return {
+        stopReason: "cancelled",
+        usage: {
+          inputTokens: 4,
+          cachedReadTokens: 0,
+          cachedWriteTokens: 0,
+          outputTokens: 1,
+          thoughtTokens: 0,
+          totalTokens: 5,
+        },
+      };
+    }
+    if (
+      prompt.includes("[settings-check]") ||
+      prompt.includes("[usage-check]")
+    ) {
+      if (process.env.FAKE_PROMPT_LOG)
+        appendFileSync(process.env.FAKE_PROMPT_LOG, "prompt\n");
+      await ctx.client.notify(methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: `executed:${model}/${effort}` },
+        },
+      });
+      if (!prompt.includes("[usage-check]")) return { stopReason: "end_turn" };
+      for (const used of [28, 10])
+        await ctx.client.notify(methods.client.session.update, {
+          sessionId,
+          update: { sessionUpdate: "usage_update", used, size: 76000 },
+        });
+      await ctx.client.notify(methods.client.session.update, {
+        sessionId: "wrong-session",
+        update: { sessionUpdate: "usage_update", used: 99, size: 76000 },
+      });
+      await ctx.client.notify(methods.client.session.update, {
+        sessionId,
+        update: { sessionUpdate: "usage_update", used: 99, size: 0 },
+      });
+      const usage = {
+        inputTokens: 13,
+        cachedReadTokens: 8,
+        cachedWriteTokens: 0,
+        outputTokens: 7,
+        thoughtTokens: 2,
+        totalTokens: prompt.includes("[mismatch]") ? 29 : 28,
+      };
+      return {
+        stopReason: "end_turn",
+        ...(prompt.includes("[alias-only]") ? {} : { usage }),
+        _meta: { quota: { token_count: usage } },
+      };
+    }
     if (prompt.includes("[process-exit]")) process.exit(1);
     if (prompt.includes("[stubborn]")) {
       process.stdin.removeAllListeners("end");
