@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { CodexAdapter } from "./codex-adapter.js";
 import { AcpAdapter, type AdapterConfig } from "./acp-adapter.js";
 import { z } from "zod";
+import { grokTelemetry } from "./grok-acp-mapping.js";
 import { projectDirectory as localRoot, projectPath } from "./local-path.js";
 export const executableHarnessSchema = z.enum(["Codex", "ZCode", "Grok"]);
 export function runtime() {
@@ -91,9 +92,9 @@ export function runtime() {
     if (process.env[key]) nativeEnv[key] = process.env[key];
   if (!fake) {
     if (harnessName === "Grok") {
-      const root = localRoot("var/grok-local");
+      const root = localRoot(process.env.TASK_GROK_HOME ?? "var/grok-local");
       Object.assign(nativeEnv, {
-        HOME: localRoot("var/grok-local/home"),
+        HOME: localRoot(resolve(root, "home")),
         GROK_HOME: root,
         GROK_AUTH_PATH: projectPath(resolve(root, "auth.json")),
         GROK_CONFIG_PATH: projectPath(resolve(root, "config.toml")),
@@ -181,7 +182,12 @@ export function runtime() {
         : nativeEnv,
   };
   const adapter =
-    harnessName === "Codex" ? new CodexAdapter(config) : new AcpAdapter(config);
+    harnessName === "Codex"
+      ? new CodexAdapter(config)
+      : new AcpAdapter({
+          ...config,
+          telemetry: harnessName === "Grok" ? grokTelemetry : undefined,
+        });
   return {
     workspace,
     adapter,
