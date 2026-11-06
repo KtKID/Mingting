@@ -6,6 +6,7 @@ import { CodexAdapter } from "./codex-adapter.js";
 import { AcpAdapter, type AdapterConfig } from "./acp-adapter.js";
 import { z } from "zod";
 import { grokTelemetry } from "./grok-acp-mapping.js";
+import { zcodeTelemetry } from "./zcode-acp-mapping.js";
 import { projectDirectory as localRoot, projectPath } from "./local-path.js";
 export const executableHarnessSchema = z.enum(["Codex", "ZCode", "Grok"]);
 export function runtime() {
@@ -186,7 +187,7 @@ export function runtime() {
       ? new CodexAdapter(config)
       : new AcpAdapter({
           ...config,
-          telemetry: harnessName === "Grok" ? grokTelemetry : undefined,
+          telemetry: harnessName === "Grok" ? grokTelemetry : zcodeTelemetry,
         });
   return {
     workspace,

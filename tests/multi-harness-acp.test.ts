@@ -7,8 +7,9 @@ import { randomUUID } from "node:crypto";
 import { createPlatform } from "../src/server/http.js";
 import { publishTaskSchema } from "../src/shared/protocol.js";
 import { grokTelemetry } from "../src/server/grok-acp-mapping.js";
+import { zcodeTelemetry } from "../src/server/zcode-acp-mapping.js";
 
-for (const harnessName of ["Grok"]) {
+for (const harnessName of ["Grok", "ZCode"]) {
   test(`${harnessName} settings, tools and context are recorded under the owned run`, async () => {
     const dir = mkdtempSync(join(tmpdir(), "mingting-harness-audit-"));
     const p = createPlatform({
@@ -192,4 +193,31 @@ test("Grok partitions input and retains independently observed context and cost"
     effectiveWindowTokens: null,
     source: "grok_acp_session_meta",
   });
+});
+
+test("ZCode keeps its upstream session and rejects usage from a no-request snapshot", () => {
+  const raw = {
+    sessionId: "native-s",
+    inputTokens: 100,
+    outputTokens: 20,
+    totalTokens: 120,
+    reasoningTokens: 10,
+    cacheReadTokens: 60,
+    cacheCreationTokens: 5,
+    modelRequestCount: 2,
+    modelErrorCount: 0,
+  };
+  const map = (value: typeof raw) =>
+    zcodeTelemetry.usage(
+      { _meta: { "mingting.zcode/turnUsage": value } },
+      "GLM-5.3",
+      "s",
+      "3",
+      1,
+    )!.usage;
+  assert.equal(map(raw).uncachedInputTokens, 35);
+  assert.equal(map(raw).source.upstreamSessionId, "native-s");
+  assert.equal(map({ ...raw, modelRequestCount: 0 }).coverage, "missing");
+  assert.equal(map({ ...raw, modelErrorCount: 1 }).coverage, "partial");
+  assert.equal(map({ ...raw, totalTokens: 121 }).inconsistent, true);
 });
