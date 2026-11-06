@@ -1,0 +1,894 @@
+[
+  {
+    "id": "codex",
+    "harness": "Codex",
+    "source": "reports/codex-task-settings-and-audit/20261105-live/evidence/live.json",
+    "sourceSha256": "b3dcb2495a102f5cea17a2a209a1374f4a84b36d0b0730f1af105ee797b32fbf",
+    "adapterVersion": "2.5.0",
+    "settings": {
+      "modelId": "gpt-6.1-sol",
+      "reasoningEffort": "medium"
+    },
+    "model": {
+      "id": "gpt-6.1-sol",
+      "name": "6.1 Sol",
+      "efforts": [
+        {
+          "id": "low",
+          "name": "Low"
+        },
+        {
+          "id": "medium",
+          "name": "Medium"
+        },
+        {
+          "id": "high",
+          "name": "High"
+        },
+        {
+          "id": "xhigh",
+          "name": "Xhigh"
+        },
+        {
+          "id": "max",
+          "name": "Max"
+        },
+        {
+          "id": "ultra",
+          "name": "Ultra"
+        }
+      ]
+    },
+    "catalogWindow": 1050000,
+    "frames": [
+      {
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "明庭验收开始，现在读取问候文件"
+          }
+        }
+      },
+      {
+        "update": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "tool-1",
+          "kind": "read",
+          "status": "in_progress",
+          "title": "Read HELLO.txt"
+        }
+      },
+      {
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "tool-1",
+          "status": "completed",
+          "rawOutput": "Recorded result"
+        }
+      },
+      {
+        "update": {
+          "sessionUpdate": "usage_update",
+          "used": 15447,
+          "size": 475000
+        }
+      },
+      {
+        "update": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "tool-2",
+          "kind": "execute",
+          "status": "in_progress",
+          "title": "Recorded command",
+          "rawInput": {
+            "fixture": "HELLO.txt"
+          },
+          "rawOutput": "Recorded result"
+        }
+      },
+      {
+        "permission": {
+          "toolCall": {
+            "toolCallId": "tool-2",
+            "kind": "execute",
+            "status": "pending",
+            "title": "Recorded command",
+            "rawInput": {
+              "fixture": "marker.txt"
+            }
+          },
+          "options": [
+            {
+              "optionId": "allow_once",
+              "name": "Yes, proceed",
+              "kind": "allow_once"
+            },
+            {
+              "optionId": "accept_execpolicy_amendment",
+              "name": "Recorded persistent approval",
+              "kind": "allow_always"
+            },
+            {
+              "optionId": "cancel",
+              "name": "No, and tell Codex what to do differently",
+              "kind": "reject_once"
+            }
+          ]
+        },
+        "expectedOption": "allow_once"
+      },
+      {
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "tool-2",
+          "status": "completed"
+        }
+      },
+      {
+        "update": {
+          "sessionUpdate": "usage_update",
+          "used": 15591,
+          "size": 475000
+        }
+      },
+      {
+        "update": {
+          "sessionUpdate": "usage_update",
+          "used": 15685,
+          "size": 475000
+        }
+      },
+      {
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "\n读到的内容是：明庭 Codex 真实验收。\n验收完成：已读取 HELLO.txt，并成功执行审批命令，将固定标记写入指定 marker.txt。未联网，未改动其他文件。"
+          }
+        }
+      }
+    ],
+    "result": {
+      "stopReason": "end_turn",
+      "usage": {
+        "inputTokens": 6583,
+        "cachedReadTokens": 39936,
+        "cachedWriteTokens": 0,
+        "outputTokens": 204,
+        "thoughtTokens": 0,
+        "totalTokens": 46723
+      }
+    },
+    "expected": {
+      "usage": {
+        "uncachedInputTokens": 6583,
+        "cachedReadTokens": 39936,
+        "cachedWriteTokens": 0,
+        "outputTokens": 204,
+        "reasoningTokens": 0,
+        "totalTokens": 46723,
+        "coverage": "complete",
+        "inconsistent": false
+      },
+      "usageMethod": "session/prompt",
+      "context": {
+        "usedTokens": 15685,
+        "effectiveWindowTokens": 475000,
+        "source": "acp_usage_update"
+      },
+      "output": "明庭验收开始，现在读取问候文件\n读到的内容是：明庭 Codex 真实验收。\n验收完成：已读取 HELLO.txt，并成功执行审批命令，将固定标记写入指定 marker.txt。未联网，未改动其他文件。",
+      "reasoning": ""
+    }
+  },
+  {
+    "id": "grok",
+    "harness": "Grok",
+    "source": "reports/multi-harness-acp/20261106-qdev/evidence/grok-live.json",
+    "sourceSha256": "37a0bca637719fd446ae3431f29c3e5531e7fd7186aa8f7cf33be58a130e7db4",
+    "adapterVersion": "unknown",
+    "settings": {
+      "modelId": "grok-4.7",
+      "reasoningEffort": "low"
+    },
+    "model": {
+      "id": "grok-4.7",
+      "name": "Grok 4.7",
+      "efforts": [
+        {
+          "id": "xhigh",
+          "name": "Extra High"
+        },
+        {
+          "id": "high",
+          "name": "High"
+        },
+        {
+          "id": "medium",
+          "name": "Medium"
+        },
+        {
+          "id": "low",
+          "name": "Low"
+        }
+      ]
+    },
+    "catalogWindow": 256000,
+    "frames": [
+      {
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "开始"
+          }
+        }
+      },
+      {
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "先向用户发送\"开始读取\"。\n\n随后调用 read 工具读取 HELLO.txt，仅回复第一行。"
+          }
+        }
+      },
+      {
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": ""
+          }
+        },
+        "_meta": {
+          "totalTokens": 1925
+        }
+      },
+      {
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": ""
+          }
+        },
+        "_meta": {
+          "totalTokens": 17581
+        }
+      },
+      {
+        "update": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "tool-1",
+          "title": "Read HELLO.txt",
+          "rawInput": {
+            "fixture": "HELLO.txt"
+          }
+        }
+      },
+      {
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "tool-1",
+          "kind": "read",
+          "title": "Read HELLO.txt",
+          "rawInput": {
+            "fixture": "HELLO.txt"
+          }
+        }
+      },
+      {
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "tool-1",
+          "status": "completed",
+          "rawOutput": "MINGTING-ACP-LIVE-731"
+        }
+      },
+      {
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": ""
+          }
+        },
+        "_meta": {
+          "totalTokens": 17587
+        }
+      },
+      {
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": ""
+          }
+        },
+        "_meta": {
+          "totalTokens": 17651
+        }
+      },
+      {
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "读取\n\nMINGTING-ACP-LIVE-731"
+          }
+        }
+      }
+    ],
+    "result": {
+      "stopReason": "end_turn",
+      "_meta": {
+        "usage": {
+          "inputTokens": 34777,
+          "cachedReadTokens": 18816,
+          "cacheCreationTokens": 0,
+          "outputTokens": 443,
+          "reasoningTokens": 383,
+          "totalTokens": 35220,
+          "costUsdTicks": 439880000
+        }
+      }
+    },
+    "expected": {
+      "usage": {
+        "uncachedInputTokens": 15961,
+        "cachedReadTokens": 18816,
+        "cachedWriteTokens": 0,
+        "outputTokens": 443,
+        "reasoningTokens": 383,
+        "totalTokens": 35220,
+        "coverage": "complete",
+        "inconsistent": false,
+        "cost": {
+          "currency": "USD",
+          "amount": 0.043988
+        }
+      },
+      "usageMethod": "session/prompt",
+      "context": {
+        "usedTokens": 17651,
+        "effectiveWindowTokens": null,
+        "source": "grok_acp_session_meta"
+      },
+      "output": "开始读取\n\nMINGTING-ACP-LIVE-731",
+      "reasoning": "先向用户发送\"开始读取\"。\n\n随后调用 read 工具读取 HELLO.txt，仅回复第一行。"
+    }
+  },
+  {
+    "id": "zcode",
+    "harness": "ZCode",
+    "source": "reports/multi-harness-acp/20261106-qdev/evidence/zcode-live.json",
+    "sourceSha256": "393ea24edf60bfe848a556983b14926f3417d404b34f1cc73ec726062efe4068",
+    "adapterVersion": "3",
+    "settings": {
+      "modelId": "GLM-5.3",
+      "reasoningEffort": "low"
+    },
+    "model": {
+      "id": "GLM-5.3",
+      "name": "GLM-5.3",
+      "efforts": [
+        {
+          "id": "low",
+          "name": "low"
+        },
+        {
+          "id": "high",
+          "name": "high"
+        },
+        {
+          "id": "max",
+          "name": "max"
+        }
+      ]
+    },
+    "catalogWindow": 1000000,
+    "frames": [
+      {
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "开始读取"
+          }
+        }
+      },
+      {
+        "update": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "tool-1",
+          "kind": "read",
+          "status": "pending",
+          "title": "Read HELLO.txt"
+        }
+      },
+      {
+        "permission": {
+          "toolCall": {
+            "toolCallId": "tool-1",
+            "kind": "read",
+            "status": "pending",
+            "title": "Read HELLO.txt",
+            "rawInput": {
+              "fixture": "HELLO.txt"
+            }
+          },
+          "options": [
+            {
+              "optionId": "allow_once",
+              "name": "Allow once",
+              "kind": "allow_once"
+            },
+            {
+              "optionId": "allow_project",
+              "name": "Always allow in this project",
+              "kind": "allow_always"
+            },
+            {
+              "optionId": "deny",
+              "name": "Deny",
+              "kind": "reject_once"
+            }
+          ]
+        },
+        "expectedOption": "allow_once"
+      },
+      {
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "tool-1",
+          "status": "in_progress"
+        }
+      },
+      {
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "tool-1",
+          "status": "completed",
+          "rawOutput": "MINGTING-ACP-LIVE-731"
+        }
+      },
+      {
+        "update": {
+          "sessionUpdate": "usage_update",
+          "used": 2735,
+          "size": 200000
+        }
+      },
+      {
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "文件第一行是：`MINGTING-ACP-LIVE-731`"
+          }
+        }
+      }
+    ],
+    "result": {
+      "stopReason": "end_turn",
+      "_meta": {
+        "mingting.zcode/turnUsage": {
+          "sessionId": "replay-native-zcode",
+          "inputTokens": 2717,
+          "outputTokens": 59,
+          "reasoningTokens": 0,
+          "cacheCreationTokens": 0,
+          "cacheReadTokens": 0,
+          "totalTokens": 2776,
+          "modelRequestCount": 2,
+          "modelErrorCount": 0
+        }
+      }
+    },
+    "expected": {
+      "usage": {
+        "uncachedInputTokens": 2717,
+        "cachedReadTokens": 0,
+        "cachedWriteTokens": 0,
+        "outputTokens": 59,
+        "reasoningTokens": 0,
+        "totalTokens": 2776,
+        "coverage": "complete",
+        "inconsistent": false
+      },
+      "usageMethod": "session/usage",
+      "context": {
+        "usedTokens": 2735,
+        "effectiveWindowTokens": 200000,
+        "source": "acp_usage_update"
+      },
+      "output": "开始读取文件第一行是：`MINGTING-ACP-LIVE-731`",
+      "reasoning": ""
+    }
+  },
+  {
+    "id": "deepseek",
+    "harness": "DeepSeek",
+    "source": "reports/multi-harness-acp/20261106-qdev/evidence/deepseek-live.json",
+    "sourceSha256": "0ac8aa70d03928b6cb88be5bc171786e380d4b268f81adb63bfffc250e30ae14",
+    "adapterVersion": "0.0.1",
+    "settings": {
+      "modelId": "[\"deepseek-official\",\"deepseek-v4-flash\"]",
+      "reasoningEffort": "low"
+    },
+    "model": {
+      "id": "[\"deepseek-official\",\"deepseek-v4-flash\"]",
+      "name": "deepseek-v4-flash",
+      "efforts": [
+        {
+          "id": "off",
+          "name": "Off"
+        },
+        {
+          "id": "low",
+          "name": "Low"
+        },
+        {
+          "id": "high",
+          "name": "High"
+        },
+        {
+          "id": "max",
+          "name": "Max"
+        }
+      ]
+    },
+    "catalogWindow": null,
+    "frames": [
+      {
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "开始读取。"
+          }
+        }
+      },
+      {
+        "update": {
+          "sessionUpdate": "usage_update",
+          "used": 5844,
+          "size": 1000000
+        }
+      },
+      {
+        "update": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "tool-1",
+          "kind": "other",
+          "status": "in_progress",
+          "title": "Read HELLO.txt",
+          "rawInput": {
+            "fixture": "HELLO.txt"
+          }
+        }
+      },
+      {
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "tool-1",
+          "status": "completed",
+          "rawOutput": "MINGTING-ACP-LIVE-731"
+        }
+      },
+      {
+        "update": {
+          "sessionUpdate": "usage_update",
+          "used": 5945,
+          "size": 1000000
+        }
+      },
+      {
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "文件第一行是：`MINGTING-ACP-LIVE-731`"
+          }
+        }
+      }
+    ],
+    "result": {
+      "stopReason": "end_turn"
+    },
+    "expected": {
+      "usage": {
+        "uncachedInputTokens": 435,
+        "cachedReadTokens": 11264,
+        "cachedWriteTokens": 0,
+        "outputTokens": 90,
+        "reasoningTokens": null,
+        "totalTokens": 11789,
+        "coverage": "partial",
+        "inconsistent": false
+      },
+      "usageMethod": "dsh/session-log",
+      "context": {
+        "usedTokens": 5945,
+        "effectiveWindowTokens": 1000000,
+        "source": "acp_usage_update"
+      },
+      "output": "开始读取。文件第一行是：`MINGTING-ACP-LIVE-731`",
+      "reasoning": ""
+    },
+    "deepseekEvents": [
+      {
+        "type": "turn/start",
+        "seq": 4,
+        "data": {
+          "turn": 1
+        }
+      },
+      {
+        "type": "step/start",
+        "seq": 6,
+        "data": {
+          "turn": 1,
+          "step": 1
+        }
+      },
+      {
+        "type": "assistant/message",
+        "seq": 14,
+        "data": {
+          "turn": 1,
+          "step": 1,
+          "usage": {
+            "inputTokens": 267,
+            "outputTokens": 73,
+            "cacheReadTokens": 5504,
+            "cacheWriteTokens": 0,
+            "totalTokens": 5844
+          }
+        }
+      },
+      {
+        "type": "step/end",
+        "seq": 17,
+        "data": {
+          "turn": 1,
+          "step": 1
+        }
+      },
+      {
+        "type": "step/start",
+        "seq": 18,
+        "data": {
+          "turn": 1,
+          "step": 2
+        }
+      },
+      {
+        "type": "assistant/message",
+        "seq": 20,
+        "data": {
+          "turn": 1,
+          "step": 2,
+          "usage": {
+            "inputTokens": 168,
+            "outputTokens": 17,
+            "cacheReadTokens": 5760,
+            "cacheWriteTokens": 0,
+            "totalTokens": 5945
+          }
+        }
+      },
+      {
+        "type": "step/end",
+        "seq": 21,
+        "data": {
+          "turn": 1,
+          "step": 2
+        }
+      },
+      {
+        "type": "turn/end",
+        "seq": 22,
+        "data": {
+          "turn": 1,
+          "reason": {
+            "kind": "completed"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "deepseek-high",
+    "harness": "DeepSeek",
+    "source": "reports/multi-harness-acp/20261106-qdev/evidence/deepseek-high-live.json",
+    "sourceSha256": "d7c1e224347355e8a3fb0a0ff46206a4441953befc737e6ddf9fa3bbd748ae8a",
+    "adapterVersion": "0.0.1",
+    "settings": {
+      "modelId": "[\"deepseek-official\",\"deepseek-v4-flash\"]",
+      "reasoningEffort": "high"
+    },
+    "model": {
+      "id": "[\"deepseek-official\",\"deepseek-v4-flash\"]",
+      "name": "deepseek-v4-flash",
+      "efforts": [
+        {
+          "id": "off",
+          "name": "Off"
+        },
+        {
+          "id": "low",
+          "name": "Low"
+        },
+        {
+          "id": "high",
+          "name": "High"
+        },
+        {
+          "id": "max",
+          "name": "Max"
+        }
+      ]
+    },
+    "catalogWindow": null,
+    "frames": [
+      {
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "开始读取。"
+          }
+        }
+      },
+      {
+        "update": {
+          "sessionUpdate": "usage_update",
+          "used": 5814,
+          "size": 1000000
+        }
+      },
+      {
+        "update": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "tool-1",
+          "kind": "other",
+          "status": "in_progress",
+          "title": "Read HELLO.txt",
+          "rawInput": {
+            "fixture": "HELLO.txt"
+          }
+        }
+      },
+      {
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "tool-1",
+          "status": "completed",
+          "rawOutput": "MINGTING-ACP-LIVE-731"
+        }
+      },
+      {
+        "update": {
+          "sessionUpdate": "usage_update",
+          "used": 5911,
+          "size": 1000000
+        }
+      },
+      {
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "第一行：MINGTING-ACP-LIVE-731"
+          }
+        }
+      }
+    ],
+    "result": {
+      "stopReason": "end_turn"
+    },
+    "expected": {
+      "usage": {
+        "uncachedInputTokens": 5525,
+        "cachedReadTokens": 6144,
+        "cachedWriteTokens": 0,
+        "outputTokens": 56,
+        "reasoningTokens": null,
+        "totalTokens": 11725,
+        "coverage": "partial",
+        "inconsistent": false
+      },
+      "usageMethod": "dsh/session-log",
+      "context": {
+        "usedTokens": 5911,
+        "effectiveWindowTokens": 1000000,
+        "source": "acp_usage_update"
+      },
+      "output": "开始读取。第一行：MINGTING-ACP-LIVE-731",
+      "reasoning": ""
+    },
+    "deepseekEvents": [
+      {
+        "type": "turn/start",
+        "seq": 4,
+        "data": {
+          "turn": 1
+        }
+      },
+      {
+        "type": "step/start",
+        "seq": 6,
+        "data": {
+          "turn": 1,
+          "step": 1
+        }
+      },
+      {
+        "type": "assistant/message",
+        "seq": 14,
+        "data": {
+          "turn": 1,
+          "step": 1,
+          "usage": {
+            "inputTokens": 5387,
+            "outputTokens": 43,
+            "cacheReadTokens": 384,
+            "cacheWriteTokens": 0,
+            "totalTokens": 5814
+          }
+        }
+      },
+      {
+        "type": "step/end",
+        "seq": 17,
+        "data": {
+          "turn": 1,
+          "step": 1
+        }
+      },
+      {
+        "type": "step/start",
+        "seq": 18,
+        "data": {
+          "turn": 1,
+          "step": 2
+        }
+      },
+      {
+        "type": "assistant/message",
+        "seq": 20,
+        "data": {
+          "turn": 1,
+          "step": 2,
+          "usage": {
+            "inputTokens": 138,
+            "outputTokens": 13,
+            "cacheReadTokens": 5760,
+            "cacheWriteTokens": 0,
+            "totalTokens": 5911
+          }
+        }
+      },
+      {
+        "type": "step/end",
+        "seq": 21,
+        "data": {
+          "turn": 1,
+          "step": 2
+        }
+      },
+      {
+        "type": "turn/end",
+        "seq": 22,
+        "data": {
+          "turn": 1,
+          "reason": {
+            "kind": "completed"
+          }
+        }
+      }
+    ]
+  }
+]

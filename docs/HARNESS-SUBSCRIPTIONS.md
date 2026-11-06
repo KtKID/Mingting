@@ -1,10 +1,10 @@
 # Harness 订阅
 
-状态：Codex、Grok、ZCode 的身份订阅与真实问候均已通过。任务记录：[身份订阅与问候验证](task/task-harness-subscriptions.md)、[ZCode 修复](task/task-zcode-model-selection.md)。
+状态为 Codex、Grok、ZCode、DeepSeek Harness 的 ACP 接入均有真实任务记录。日常服务的启用范围取决于项目配置。[身份订阅与问候验证](task/task-harness-subscriptions.md) · [多执行器接入](task/task-multi-harness-acp.md)
 
 ## H1 身份
 
-常驻连接器通过本机 HTTP SSE 携带 harnessName 与 ownerId 登记在线身份。连接关闭后对应订阅下线。MCP `list_harnesses` 提供当前在线列表，运行历史保存实际执行身份。当前目标为 Codex、ZCode、Grok；身份是可信本机进程的自报名称。
+常驻连接器通过本机 HTTP SSE 携带 harnessName 与 ownerId 登记在线身份。连接关闭后对应订阅下线。MCP `list_harnesses` 提供当前在线列表，运行历史保存实际执行身份。支持 Codex、ZCode、Grok 和 DeepSeek 四个执行目标。身份由可信本机进程登记。
 
 ## H2 定向发布
 
@@ -12,9 +12,9 @@ MCP `publish_task` 可携带 targetHarness。服务对通知和领取同时匹�
 
 ## H3 执行
 
-三个连接器统一通过 ACP v1 执行。Codex 使用官方 Codex ACP；Grok 使用自身 `grok agent stdio`；ZCode 使用项目内 ACP 桥接器驱动原生 CLI 0.17.1 的 `zcode app-server --stdio`。桥接器先建立会话并订阅事件，再发送文本任务；原生权限请求转换为 ACP `session/request_permission`，明庭的最终选项按原始响应回传 ZCode。协议来源在网页详情显示。
+四个连接器统一通过 ACP v1 执行。Codex 使用官方 Codex ACP。Grok 使用 xAI 的 `grok agent stdio`。DeepSeek 使用官方 `dsh --profile acp`。ZCode 使用明庭维护的 ACP 桥接器驱动原生 CLI 0.17.1 的 `zcode app-server --stdio`。桥接器将原生权限请求转换为 ACP `session/request_permission`，再把明庭选定的原始响应回传给 ZCode。
 
-Grok 固定 plan 模式，仅开放 Read；ZCode 桥接器固定 plan、一次文本回合、Read 工具，使用当前 GLM-5.3 OAuth 账号配置。Codex 沿用 workspace-write 和人工审批。MCP 负责发布/查询身份，连接器 SSE 负责常驻任务通知与身份注册；成功领取后唤起对应 harness，ACP 通知与结果按序回传。ZCode 已完成真实原生工具审批：订阅者同意满十秒后读取文件、倒计时内用户拒绝、用户先拒绝；见实测记录（本机归档）。
+Grok 固定 plan 模式，仅开放 Read。ZCode 桥接器限制为一次文本回合，并在原生会话中仅开放 Read。Codex 沿用 workspace-write 和人工审批。DeepSeek 按官方 ACP profile 运行，由其工具权限策略决定是否发出审批。MCP 负责发布与查询身份，连接器负责订阅、领取、唤起与按序回传。ZCode 已验证真实 Read 审批与同次运行审计。
 
 ## H4 部署
 
@@ -114,3 +114,25 @@ Codex/Grok 首次部署执行 `node --import tsx scripts/prepare-harness-local.t
 2026-11-01 的[本轮任务](task/task-acp-streaming.md)已完成qdev。经 MCP 指定 Codex/Grok/ZCode，各自产生一个独立运行，读取项目 HELLO.txt 并问候；三项均成功。网页 SSE 在结束前收到正文与工具，Grok/ZCode同时有思考内容；本次Codex思考为空。刷新后快照一致，桌面与手机6项交互通过，自动测试40项通过。实际链路（本机归档）、接入兼容性及隔离边界（本机归档）记录协议来源和历史差异。
 
 2026-11-01 H5恢复修复：关闭的实时流与临时会话恢复失败均持续重试；已完成，见[恢复qdev](task/task-web-reconnect.md)。
+
+## 多执行器设置和审计
+
+明庭按执行器发现模型和档位，设置生效回执、工具、原审批决定、用量和上下文归入该次运行。执行器通过各自的 ACP 入口提供配置和指标，界面区分已确认、未上报和目录数据。Codex 原有工作区策略沿用，Grok、ZCode 和 DeepSeek 的可用工具与权限以各自入口及项目配置为准。
+
+| 执行器 | 任务 Usage | 上下文 |
+| --- | --- | --- |
+| Grok | ACP prompt 元数据，包含可用的费用字段 | 流中占用，模型目录标称窗口 |
+| ZCode | 一次原生会话的 Usage，保留上游会话 ID | 结束时原生会话占用与有效窗口，另存目录标称窗口 |
+| DeepSeek | 官方 ACP 负责执行。适配器补读同一新会话的完整原生 v4 回合日志，按已提交步骤对账 | 官方 ACP 标准 `usage_update` 的占用和有效窗口 |
+
+DeepSeek 以 `DeepSeek` 加入 `TASK_HARNESSES`。宿主需要可运行的 `dsh` 和项目内 `TASK_DEEPSEEK_HOME`，默认 `var/deepseek-local`。登录放在该目录的 `.credentials.yaml`，也可显式提供 `DEEPSEEK_API_KEY`。压缩 v4 日志由宿主已有的 `zstd` 解码。上游缺项保留为空，重试或日志缺失时保留待核实状态。Grok 可用 `TASK_GROK_HOME` 选择独立的项目内登录目录。
+
+### 变更记录
+
+- 2026-11-06 接入 Grok、ZCode 和 DeepSeek Harness 的统一运行审计。三家真实读取通过，ZCode 实测原生审批。正式启用待部署。[任务](task/task-multi-harness-acp.md)
+
+## 离线回归
+
+将真实运行证据提取为测试夹具，保留设置、可观测事件、用量字段与审批选项。回放通过本地 ACP 子进程驱动明庭连接器、适配器与 SQLite，供默认后端回归运行。执行 `npm run test:unit`，或用 `node --import tsx --test tests/acp-offline-replay.test.ts` 只跑五条录制用例。测试读取仓库中的夹具，模型与工具由录制结果提供。
+
+- 2026-11-06 新增真实 ACP 运行离线回放，五条录制用例及默认后端回归通过。[任务](task/task-acp-offline-replay.md)
