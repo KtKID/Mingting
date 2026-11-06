@@ -292,6 +292,7 @@ export class Store {
     this.db
       .prepare("UPDATE task_wakeup_events SET data=? WHERE id=? AND task_id=?")
       .run(JSON.stringify(valid), valid.id, valid.taskId);
+    this.changed();
   }
   pendingDshWakeup(hostId: string) {
     const row = this.db

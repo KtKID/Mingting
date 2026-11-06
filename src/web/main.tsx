@@ -19,10 +19,11 @@ import {
   type HarnessSubscription,
   type Bootstrap,
   type Task,
-  type TaskDetail,
+  type BrowserTaskDetail,
   type Approval,
   type RunUsage,
 } from "../shared/protocol";
+import type { WakeupEvent } from "../shared/task-wakeup";
 import "./style.css";
 import { ApprovalCard } from "./approval-card";
 
@@ -83,6 +84,14 @@ const statusNames: Record<Task["status"], string> = {
   failed: "执行失败",
   cancelled: "已取消",
   interrupted: "已中断",
+};
+const wakeupStatusNames: Record<WakeupEvent["status"], string> = {
+  pending: "等待投递",
+  sending: "投递中",
+  delivered: "已投递",
+  acknowledged: "已确认",
+  superseded: "已失效",
+  failed: "投递失败",
 };
 function Status({ status }: { status: Task["status"] }) {
   return (
@@ -180,7 +189,8 @@ function App() {
   const [selected, setSelected] = useState<string | undefined>(
     linkedTask.success ? linkedTask.data : undefined,
   );
-  const [detail, setDetail] = useState<TaskDetail>();
+  const [detail, setDetail] = useState<BrowserTaskDetail>();
+  const wakeup = detail?.wakeup;
   const [chosenRunId, setChosenRunId] = useState<string>();
   const [audit, setAudit] = useState<AuditPage>();
   const auditRequest = useRef(0);
@@ -857,6 +867,43 @@ function App() {
                 <div>
                   <dt>工作区</dt>
                   <dd className="mono">{boot?.workspace}</dd>
+                </div>
+                <div>
+                  <dt>唤醒目标</dt>
+                  <dd>
+                    {wakeup ? (
+                      <>
+                        <div>
+                          会话 ID（threadId）{" "}
+                          <code>{wakeup.target.threadId}</code>
+                        </div>
+                        <div>
+                          发单轮次 ID（originTurnId）{" "}
+                          <code>{wakeup.target.originTurnId}</code>
+                        </div>
+                      </>
+                    ) : (
+                      "未绑定 MCP 唤醒"
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt>投递结果</dt>
+                  <dd>
+                    {wakeup?.events.length
+                      ? wakeup.events.map((event) => (
+                          <div key={event.id}>
+                            {event.type === "approval.requested"
+                              ? "审批通知"
+                              : "完成通知"}
+                            {" · "}
+                            {wakeupStatusNames[event.status]}
+                          </div>
+                        ))
+                      : wakeup
+                        ? "暂无投递记录"
+                        : "无"}
+                  </dd>
                 </div>
               </dl>
               {detail.runs.length > 1 && (

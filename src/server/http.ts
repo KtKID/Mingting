@@ -174,10 +174,21 @@ export function createPlatform(config: Config) {
       flush = undefined;
       if (closed || blocked) return;
       dirty = false;
+      const detail = taskId ? store.detail(taskId) : undefined;
+      const target = detail && store.wakeupTarget(detail.task.id);
+      const wakeup =
+        target && detail
+          ? {
+              target,
+              events: store
+                .taskWakeups(detail.task.id)
+                .map(({ id, type, status }) => ({ id, type, status })),
+            }
+          : undefined;
       const snapshot = {
         tasks: store.list(),
         harnesses: service.harnesses(),
-        detail: taskId ? (store.detail(taskId) ?? null) : null,
+        detail: detail ? { ...detail, wakeup } : null,
         pendingApprovals: store.pendingApprovals(),
         serverTime: Date.now(),
       };

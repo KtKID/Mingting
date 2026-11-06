@@ -8,7 +8,10 @@ import { resolve } from "node:path";
 import { createServer } from "node:http";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { publishResultSchema } from "../src/shared/protocol.js";
+import {
+  browserSnapshotSchema,
+  publishResultSchema,
+} from "../src/shared/protocol.js";
 import { createPlatform } from "../src/server/http.js";
 import type { WakeupDelivery } from "../src/server/task-wakeup.js";
 import type { WakeupEvent } from "../src/shared/task-wakeup.js";
@@ -552,7 +555,7 @@ test("W10 ACP active writer rejects recovery and preserves the original session"
   }
 });
 
-test("W9 HTTP MCP publishes a bound task and authenticates event listing and independent turn acknowledgements", async () => {
+test("W9 HTTP MCP publishes a bound task and the authenticated browser sees wakeup updates", async () => {
   const dir = await mkdtemp(join(tmpdir(), "mingting-wakeup-http-"));
   const target = { threadId: randomUUID(), originTurnId: randomUUID() };
   const p = createPlatform({
@@ -578,10 +581,9 @@ test("W9 HTTP MCP publishes a bound task and authenticates event listing and ind
     });
     const address = server.address();
     assert.ok(address && typeof address !== "string");
+    const base = `http://127.0.0.1:${address.port}`;
     await client.connect(
-      new StreamableHTTPClientTransport(
-        new URL(`http://127.0.0.1:${address.port}/mcp`),
-      ),
+      new StreamableHTTPClientTransport(new URL(base + "/mcp")),
     );
     const publish = await client.callTool({
       name: "publish_task",
@@ -597,6 +599,43 @@ test("W9 HTTP MCP publishes a bound task and authenticates event listing and ind
     assert.deepEqual(receipt.wakeup, target);
     const subscription = receipt.approvalSubscription;
     assert.ok(subscription);
+    const snapshotUrl = base + "/api/events?taskId=" + receipt.taskId;
+    assert.equal((await fetch(snapshotUrl)).status, 403);
+    const bootstrap = await fetch(base + "/api/bootstrap");
+    const cookie = bootstrap.headers.get("set-cookie")?.split(";")[0];
+    assert.ok(cookie);
+    const browser = await fetch(snapshotUrl, {
+      headers: { cookie },
+      signal: AbortSignal.timeout(5000),
+    });
+    assert.equal(browser.status, 200);
+    assert.ok(browser.body);
+    const reader = browser.body
+      .pipeThrough(new TextDecoderStream())
+      .getReader();
+    let buffer = "";
+    const readSnapshot = async () => {
+      while (!buffer.includes("\n\n")) {
+        const part = await reader.read();
+        assert.ok(!part.done, "expected browser snapshot");
+        buffer += part.value;
+      }
+      const end = buffer.indexOf("\n\n");
+      const frame = buffer.slice(0, end);
+      buffer = buffer.slice(end + 2);
+      assert.ok(frame.startsWith("event: snapshot\ndata: "));
+      assert.doesNotMatch(
+        frame,
+        /subscriptionToken|token_hash|test-fixture|resumedTurnId/,
+      );
+      return browserSnapshotSchema.parse(
+        JSON.parse(frame.slice("event: snapshot\ndata: ".length)),
+      );
+    };
+    assert.deepEqual((await readSnapshot()).detail?.wakeup, {
+      target,
+      events: [],
+    });
     const bad = await client.callTool({
       name: "get_task_wakeups",
       arguments: { ...subscription, subscriptionToken: "0".repeat(64) },
@@ -616,6 +655,10 @@ test("W9 HTTP MCP publishes a bound task and authenticates event listing and ind
     await p.service.wakeups?.idle();
     const event = p.store.taskWakeups(receipt.taskId)[0];
     assert.ok(event);
+    const delivered = await readSnapshot();
+    assert.deepEqual(delivered.detail?.wakeup?.events, [
+      { id: event.id, type: "approval.requested", status: "delivered" },
+    ]);
     const list = await client.callTool({
       name: "get_task_wakeups",
       arguments: subscription,
@@ -635,6 +678,20 @@ test("W9 HTTP MCP publishes a bound task and authenticates event listing and ind
       p.store.taskWakeups(receipt.taskId)[0]?.status,
       "acknowledged",
     );
+    const acknowledged = await readSnapshot();
+    assert.equal(
+      acknowledged.detail?.wakeup?.events[0]?.status,
+      "acknowledged",
+    );
+    const publicDetail = await fetch(base + "/api/tasks/" + receipt.taskId, {
+      headers: { cookie },
+    });
+    assert.equal(publicDetail.status, 200);
+    assert.doesNotMatch(
+      await publicDetail.text(),
+      /originTurnId|subscriptionToken/,
+    );
+    await reader.cancel();
   } finally {
     await client.close();
     await p.service.close();

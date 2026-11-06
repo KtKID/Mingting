@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { wakeupTargetSchema } from "./task-wakeup.js";
+import { wakeupEventSchema, wakeupTargetSchema } from "./task-wakeup.js";
 import { dshTaskFields } from "./dsh-wakeup.js";
 import type {
   InitializeResponse,
@@ -294,10 +294,21 @@ export const detailSchema = z.object({
     })
     .optional(),
 });
+const browserTaskDetailSchema = detailSchema.extend({
+  wakeup: z
+    .object({
+      target: wakeupTargetSchema,
+      events: z.array(
+        wakeupEventSchema.pick({ id: true, type: true, status: true }),
+      ),
+    })
+    .optional(),
+});
+export type BrowserTaskDetail = z.infer<typeof browserTaskDetailSchema>;
 export const browserSnapshotSchema = z.object({
   tasks: z.array(taskSchema),
   harnesses: harnessListSchema,
-  detail: detailSchema.nullable(),
+  detail: browserTaskDetailSchema.nullable(),
   pendingApprovals: z.array(approvalSchema).default([]),
   serverTime: z.number().optional(),
 });
