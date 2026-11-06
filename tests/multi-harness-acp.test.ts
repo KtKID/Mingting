@@ -6,10 +6,14 @@ import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { createPlatform } from "../src/server/http.js";
 import { publishTaskSchema } from "../src/shared/protocol.js";
+import {
+  deepseekTelemetry,
+  mapDeepSeekLog,
+} from "../src/server/deepseek-acp-mapping.js";
 import { grokTelemetry } from "../src/server/grok-acp-mapping.js";
 import { zcodeTelemetry } from "../src/server/zcode-acp-mapping.js";
 
-for (const harnessName of ["Grok", "ZCode"]) {
+for (const harnessName of ["Grok", "ZCode", "DeepSeek"]) {
   test(`${harnessName} settings, tools and context are recorded under the owned run`, async () => {
     const dir = mkdtempSync(join(tmpdir(), "mingting-harness-audit-"));
     const p = createPlatform({
@@ -220,4 +224,69 @@ test("ZCode keeps its upstream session and rejects usage from a no-request snaps
   assert.equal(map({ ...raw, modelRequestCount: 0 }).coverage, "missing");
   assert.equal(map({ ...raw, modelErrorCount: 1 }).coverage, "partial");
   assert.equal(map({ ...raw, totalTokens: 121 }).inconsistent, true);
+});
+
+test("DeepSeek uses one complete native turn and counts each committed step once", () => {
+  const missing = deepseekTelemetry().usage(
+    { stopReason: "end_turn" },
+    "v4-flash",
+    "ds-session",
+    "0.0.1",
+    1,
+  )!.usage;
+  const header = {
+    type: "session",
+    version: 4,
+    id: "ds-session",
+    cwd: "/work",
+    isSeeded: false,
+    delegationDepth: 0,
+  };
+  const usage = {
+    inputTokens: 15,
+    outputTokens: 8,
+    totalTokens: 44,
+    cacheReadTokens: 21,
+    cacheWriteTokens: 0,
+    reasoningTokens: 2,
+  };
+  const turn = [
+    { type: "turn/start", data: { turn: 1 } },
+    ...[1, 2].flatMap((step) => [
+      { type: "step/start", data: { turn: 1, step } },
+      {
+        type: "assistant/message",
+        data: { turn: 1, step, usage, stream: [{ chunk: { usage } }] },
+      },
+      { type: "step/end", data: { turn: 1, step } },
+    ]),
+    { type: "turn/end", data: { turn: 1, reason: { kind: "completed" } } },
+  ];
+  const map = (events = turn, session = header) =>
+    mapDeepSeekLog(
+      [session, ...events.map((item, seq) => ({ ...item, seq }))]
+        .map((item) => JSON.stringify(item))
+        .join("\n"),
+      missing,
+      "/work",
+    );
+  assert.equal(missing.coverage, "missing");
+  assert.equal(map()?.usage.totalTokens, 88);
+  assert.equal(map()?.usage.cachedReadTokens, 42);
+  assert.equal(map()?.usage.coverage, "complete");
+  assert.equal(map()?.usage.source.method, "dsh/session-log");
+  assert.equal(map(turn.slice(0, -1)), undefined);
+  assert.equal(map(turn, { ...header, id: "other-session" }), undefined);
+  assert.equal(
+    map([...turn.slice(0, 2), turn[2], ...turn.slice(2)]),
+    undefined,
+  );
+  assert.equal(
+    map([
+      ...turn.slice(0, 2),
+      { type: "llm/retry", data: { turn: 1, step: 1 } },
+      ...turn.slice(2),
+    ]),
+    undefined,
+  );
 });

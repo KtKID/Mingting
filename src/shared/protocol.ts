@@ -51,7 +51,12 @@ export const harnessSubscriptionSchema = z
     harnessName: harnessNameSchema,
   })
   .strict();
-export const auditedHarnessSchema = z.enum(["Codex", "Grok", "ZCode"]);
+export const auditedHarnessSchema = z.enum([
+  "Codex",
+  "Grok",
+  "ZCode",
+  "DeepSeek",
+]);
 export const isAuditedHarness = (
   name: unknown,
 ): name is z.infer<typeof auditedHarnessSchema> =>

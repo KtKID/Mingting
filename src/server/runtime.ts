@@ -4,11 +4,12 @@ import { homedir, userInfo } from "node:os";
 import { createRequire } from "node:module";
 import { CodexAdapter } from "./codex-adapter.js";
 import { AcpAdapter, type AdapterConfig } from "./acp-adapter.js";
-import { z } from "zod";
+import { auditedHarnessSchema } from "../shared/protocol.js";
 import { grokTelemetry } from "./grok-acp-mapping.js";
 import { zcodeTelemetry } from "./zcode-acp-mapping.js";
+import { deepseekTelemetry } from "./deepseek-acp-mapping.js";
 import { projectDirectory as localRoot, projectPath } from "./local-path.js";
-export const executableHarnessSchema = z.enum(["Codex", "ZCode", "Grok"]);
+export const executableHarnessSchema = auditedHarnessSchema;
 export function runtime() {
   const fake = process.env.FAKE_ACP === "1";
   const auth = process.env.TASK_AUTH ?? "existing";
@@ -130,6 +131,17 @@ export function runtime() {
           throw new Error("ZCode 需要项目内的 builtin/personal 模型配置");
         nativeEnv[key] = projectPath(path);
       }
+    } else if (harnessName === "DeepSeek") {
+      const root = localRoot(
+        process.env.TASK_DEEPSEEK_HOME ?? "var/deepseek-local",
+      );
+      Object.assign(nativeEnv, {
+        DSH_HOME: root,
+        HOME: localRoot(resolve(root, "home")),
+      });
+      projectPath(resolve(root, ".credentials.yaml"));
+      if (process.env.DEEPSEEK_API_KEY)
+        nativeEnv.DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
     } else {
       env.CODEX_HOME = localRoot(process.env.CODEX_HOME ?? "var/codex-local");
       projectPath(resolve(env.CODEX_HOME, "auth.json"));
@@ -139,7 +151,12 @@ export function runtime() {
   const config: AdapterConfig = {
     mode: fake ? "fake" : "codex",
     harnessName,
-    command: !fake && harnessName === "Grok" ? "grok" : process.execPath,
+    command:
+      !fake && harnessName === "Grok"
+        ? "grok"
+        : !fake && harnessName === "DeepSeek"
+          ? "dsh"
+          : process.execPath,
     args: fake
       ? ["--import", import.meta.resolve("tsx"), resolve("tests/fake-acp.ts")]
       : harnessName === "Grok"
@@ -162,7 +179,9 @@ export function runtime() {
               import.meta.resolve("tsx"),
               resolve("scripts/zcode-acp.ts"),
             ]
-          : [require.resolve("@agentclientprotocol/codex-acp")],
+          : harnessName === "DeepSeek"
+            ? ["--profile", "acp"]
+            : [require.resolve("@agentclientprotocol/codex-acp")],
     workspace,
     authMethod:
       !fake && harnessName === "Grok"
@@ -171,7 +190,7 @@ export function runtime() {
           ? "api-key"
           : undefined,
     sessionMode:
-      !fake && harnessName === "Grok"
+      !fake && (harnessName === "Grok" || harnessName === "DeepSeek")
         ? null
         : !fake && harnessName === "ZCode"
           ? "plan"
@@ -187,7 +206,12 @@ export function runtime() {
       ? new CodexAdapter(config)
       : new AcpAdapter({
           ...config,
-          telemetry: harnessName === "Grok" ? grokTelemetry : zcodeTelemetry,
+          telemetry:
+            harnessName === "Grok"
+              ? grokTelemetry
+              : harnessName === "DeepSeek"
+                ? deepseekTelemetry(nativeEnv.DSH_HOME, workspace)
+                : zcodeTelemetry,
         });
   return {
     workspace,
