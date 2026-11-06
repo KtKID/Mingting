@@ -29,6 +29,7 @@ import { Store } from "./store.js";
 import { validateAcp } from "./acp-validation.js";
 import { applyProgress } from "./progress.js";
 import { approvalPrompt } from "../shared/approval.js";
+import type { DshAck, DshPublish } from "../shared/dsh-wakeup.js";
 import { WakeupDispatcher, type WakeupDelivery } from "./task-wakeup.js";
 import {
   wakeupAcknowledgementSchema,
@@ -130,6 +131,60 @@ export class TaskService {
   }
   private available(event: DeliveryEvent) {
     this.events.emit("available", event);
+  }
+  publishFromDsh(hostId: string, input: DshPublish, connected: boolean) {
+    const { publishRequestId, sessionId, originTurn, ...taskInput } = input;
+    const fingerprint = createHash("sha256")
+      .update(JSON.stringify(input))
+      .digest("hex");
+    const result = this.store.transaction(() => {
+      const existing = this.store.dshPublication(hostId, publishRequestId);
+      if (existing) {
+        if (existing.fingerprint !== fingerprint)
+          throw new AppError(409, "原发布请求的内容已变化");
+        return { taskId: existing.taskId, event: undefined };
+      }
+      if (this.closed || !connected)
+        throw new AppError(503, "DSH 宿主尚未连接完成事件流");
+      if (this.store.countActive() >= LIMITS.queue)
+        throw new AppError(429, "队列已满");
+      const task = this.store.publish(
+        publishTaskSchema.parse({ ...taskInput, approvalTargets: [] }),
+        { hostId, sessionId, originTurn },
+      );
+      this.store.recordDshPublication(
+        hostId,
+        publishRequestId,
+        fingerprint,
+        task.id,
+      );
+      return { taskId: task.id, event: this.store.deliver(task.id) };
+    });
+    if (result.event) this.available(result.event);
+    return { taskId: result.taskId, created: result.event !== undefined };
+  }
+  acknowledgeDshWakeup(hostId: string, ack: DshAck) {
+    this.store.transaction(() => {
+      const event = this.store.dshWakeup(ack.eventId, hostId);
+      if (!event || event.target.sessionId !== ack.sessionId)
+        throw new AppError(404, "当前宿主和会话没有这条完成事件");
+      const status = ack.outcome === "accepted" ? "delivered" : "failed";
+      if (event.status === status) return;
+      if (event.status !== "pending")
+        throw new AppError(409, "该事件已有其他投递结果");
+      this.store.saveDshWakeup({
+        ...event,
+        status,
+        attempts: event.attempts + 1,
+        deliveredAt: status === "delivered" ? now() : null,
+        receipt:
+          ack.outcome === "accepted"
+            ? { source: "dsh-web", sessionId: ack.sessionId, accepted: true }
+            : null,
+        error: ack.outcome === "rejected" ? ack.reason : null,
+      });
+    });
+    return { ok: true };
   }
   publish(raw: PublishTask) {
     if (this.closed) throw new AppError(503, "服务正在停止");

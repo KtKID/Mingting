@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { wakeupTargetSchema } from "./task-wakeup.js";
+import { dshTaskFields } from "./dsh-wakeup.js";
 import type {
   InitializeResponse,
   RequestPermissionRequest,
@@ -41,10 +42,7 @@ export const LIMITS = Object.freeze({
   browserSubscribers: 8,
   browserFlushMs: 40,
 });
-export const harnessNameSchema = z
-  .string()
-  .trim()
-  .regex(/^[A-Za-z][A-Za-z0-9_-]{0,39}$/);
+export const harnessNameSchema = dshTaskFields.targetHarness.unwrap();
 export const harnessSubscriptionSchema = z
   .object({
     ownerId: z.string().uuid(),
@@ -163,10 +161,7 @@ export type ContextObservation = z.infer<typeof contextObservationSchema>;
 
 const publishFieldsSchema = z
   .object({
-    title: z.string().trim().min(1).max(160),
-    description: z.string().trim().min(1).max(16000),
-    publisherName: z.string().trim().min(1).max(80),
-    targetHarness: harnessNameSchema.optional(),
+    ...dshTaskFields,
     requestedSettings: requestedSettingsSchema.optional(),
     approvalTargets: approvalTargetsSchema.optional(),
     wakeup: wakeupTargetSchema.optional(),

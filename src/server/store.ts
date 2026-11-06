@@ -22,6 +22,10 @@ import {
 } from "../shared/protocol.js";
 import type { SessionNotification } from "@agentclientprotocol/sdk";
 import {
+  dshWakeupEventSchema,
+  dshWakeupTargetSchema,
+  type DshWakeupEvent,
+  type DshWakeupTarget,
   wakeupEventSchema,
   wakeupTargetSchema,
   type WakeupEvent,
@@ -100,6 +104,8 @@ export class Store {
       CREATE TABLE IF NOT EXISTS leases (run_id TEXT PRIMARY KEY REFERENCES runs(id),owner_id TEXT NOT NULL,claim_id TEXT NOT NULL,deadline INTEGER NOT NULL,seq INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS task_wakeup_targets (task_id TEXT PRIMARY KEY REFERENCES tasks(id),data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS task_wakeup_events (id TEXT PRIMARY KEY,task_id TEXT NOT NULL REFERENCES tasks(id),data TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS dsh_publish_requests (host_id TEXT NOT NULL,request_id TEXT NOT NULL, fingerprint TEXT NOT NULL,task_id TEXT NOT NULL REFERENCES tasks(id),PRIMARY KEY(host_id,request_id));
+      CREATE INDEX IF NOT EXISTS task_wakeup_host_pending ON task_wakeup_events(json_extract(data,'$.target.hostId'),json_extract(data,'$.status')) WHERE json_extract(data,'$.target.hostId') IS NOT NULL;
       CREATE INDEX IF NOT EXISTS task_wakeup_status ON task_wakeup_events(json_extract(data,'$.status'));`);
   }
   transaction<T>(fn: () => T): T {
@@ -153,7 +159,7 @@ export class Store {
       .run(t.id, JSON.stringify(t));
     this.changed();
   }
-  publish(input: PublishTask): Task {
+  publish(input: PublishTask, hostTarget?: DshWakeupTarget): Task {
     const { wakeup, ...taskInput } = input;
     const t: Task = {
       ...taskInput,
@@ -165,11 +171,32 @@ export class Store {
       updatedAt: now(),
     };
     this.saveTask(t);
-    if (wakeup)
+    const target = hostTarget ?? wakeup;
+    if (target)
       this.db
         .prepare("INSERT INTO task_wakeup_targets VALUES(?,?)")
-        .run(t.id, JSON.stringify(wakeup));
+        .run(t.id, JSON.stringify(target));
     return t;
+  }
+  dshPublication(hostId: string, requestId: string) {
+    const row = this.db
+      .prepare(
+        "SELECT task_id, fingerprint FROM dsh_publish_requests WHERE host_id=? AND request_id=?",
+      )
+      .get(hostId, requestId);
+    return row
+      ? { taskId: String(row.task_id), fingerprint: String(row.fingerprint) }
+      : undefined;
+  }
+  recordDshPublication(
+    hostId: string,
+    requestId: string,
+    fingerprint: string,
+    taskId: string,
+  ) {
+    this.db
+      .prepare("INSERT INTO dsh_publish_requests VALUES(?,?,?,?)")
+      .run(hostId, requestId, fingerprint, taskId);
   }
   saveRun(r: Run) {
     this.db
@@ -192,7 +219,9 @@ export class Store {
   }
   wakeupTarget(taskId: string): WakeupTarget | undefined {
     const row = this.db
-      .prepare("SELECT data FROM task_wakeup_targets WHERE task_id=?")
+      .prepare(
+        "SELECT data FROM task_wakeup_targets WHERE task_id=? AND json_extract(data,'$.hostId') IS NULL",
+      )
       .get(taskId);
     return row
       ? wakeupTargetSchema.parse(JSON.parse(String(row.data)))
@@ -204,9 +233,14 @@ export class Store {
     runId: string,
     approvalId: string | null,
   ) {
-    const target = this.wakeupTarget(taskId);
-    if (!target) return;
-    const event = wakeupEventSchema.parse({
+    const row = this.db
+      .prepare("SELECT data FROM task_wakeup_targets WHERE task_id=?")
+      .get(taskId);
+    if (!row) return;
+    const target: unknown = JSON.parse(String(row.data));
+    const dshTarget = dshWakeupTargetSchema.safeParse(target);
+    if (dshTarget.success && type !== "task.completed") return;
+    const record = {
       id: `${type}:${approvalId ?? runId}`,
       type,
       taskId,
@@ -221,7 +255,10 @@ export class Store {
       error: null,
       resumedTurnId: null,
       acknowledgedAt: null,
-    });
+    };
+    const event = dshTarget.success
+      ? dshWakeupEventSchema.parse(record)
+      : wakeupEventSchema.parse(record);
     this.db
       .prepare("INSERT OR IGNORE INTO task_wakeup_events VALUES(?,?,?)")
       .run(event.id, taskId, JSON.stringify(event));
@@ -230,11 +267,13 @@ export class Store {
     const rows = taskId
       ? this.db
           .prepare(
-            "SELECT data FROM task_wakeup_events WHERE task_id=? ORDER BY rowid",
+            "SELECT data FROM task_wakeup_events WHERE task_id=? AND json_extract(data,'$.target.hostId') IS NULL ORDER BY rowid",
           )
           .all(taskId)
       : this.db
-          .prepare("SELECT data FROM task_wakeup_events ORDER BY rowid")
+          .prepare(
+            "SELECT data FROM task_wakeup_events WHERE json_extract(data,'$.target.hostId') IS NULL ORDER BY rowid",
+          )
           .all();
     return rows.map((row) =>
       wakeupEventSchema.parse(JSON.parse(String(row.data))),
@@ -243,7 +282,7 @@ export class Store {
   pendingWakeups(): WakeupEvent[] {
     return this.db
       .prepare(
-        "SELECT data FROM task_wakeup_events WHERE json_extract(data,'$.status')='pending' ORDER BY rowid",
+        "SELECT data FROM task_wakeup_events WHERE json_extract(data,'$.status')='pending' AND json_extract(data,'$.target.hostId') IS NULL ORDER BY rowid",
       )
       .all()
       .map((row) => wakeupEventSchema.parse(JSON.parse(String(row.data))));
@@ -253,6 +292,32 @@ export class Store {
     this.db
       .prepare("UPDATE task_wakeup_events SET data=? WHERE id=? AND task_id=?")
       .run(JSON.stringify(valid), valid.id, valid.taskId);
+  }
+  pendingDshWakeup(hostId: string) {
+    const row = this.db
+      .prepare(
+        "SELECT data FROM task_wakeup_events WHERE json_extract(data,'$.target.hostId') IS NOT NULL AND json_extract(data,'$.target.hostId')=? AND json_extract(data,'$.status')='pending' ORDER BY rowid LIMIT 1",
+      )
+      .get(hostId);
+    return row
+      ? dshWakeupEventSchema.parse(JSON.parse(String(row.data)))
+      : undefined;
+  }
+  dshWakeup(eventId: string, hostId: string) {
+    const row = this.db
+      .prepare(
+        "SELECT data FROM task_wakeup_events WHERE id=? AND json_extract(data,'$.target.hostId')=?",
+      )
+      .get(eventId, hostId);
+    return row
+      ? dshWakeupEventSchema.parse(JSON.parse(String(row.data)))
+      : undefined;
+  }
+  saveDshWakeup(event: DshWakeupEvent) {
+    const valid = dshWakeupEventSchema.parse(event);
+    this.db
+      .prepare("UPDATE task_wakeup_events SET data=? WHERE id=?")
+      .run(JSON.stringify(valid), valid.id);
   }
   approval(id: string): Approval | undefined {
     const r = this.db.prepare("SELECT data FROM approvals WHERE id=?").get(id);

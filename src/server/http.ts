@@ -23,6 +23,7 @@ import { Store } from "./store.js";
 import { TaskService, AppError } from "./service.js";
 import { readApprovalHistory } from "./approval-history.js";
 import type { WakeupDelivery } from "./task-wakeup.js";
+import { dshWakeupRouter, type DshWakeupHost } from "./dsh-wakeup.js";
 import { wakeupAcknowledgementSchema } from "../shared/task-wakeup.js";
 
 type Config = {
@@ -31,6 +32,7 @@ type Config = {
 
   mode?: "fake" | "codex";
   wakeupDelivery?: WakeupDelivery;
+  dshWakeupHost?: DshWakeupHost;
 };
 export function createPlatform(config: Config) {
   const store = new Store(config.dbPath);
@@ -88,6 +90,8 @@ export function createPlatform(config: Config) {
     next();
   });
   app.use(express.json({ limit: LIMITS.httpBytes }));
+  if (config.dshWakeupHost)
+    app.use("/wakeup-host", dshWakeupRouter(service, config.dshWakeupHost));
   app.get("/api/bootstrap", (req, res) => {
     for (const [key, value] of sessions)
       if (value.expires < Date.now()) sessions.delete(key);
