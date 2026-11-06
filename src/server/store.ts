@@ -37,7 +37,8 @@ const storedWakeupTargetSchema = wakeupTargetSchema.or(dshWakeupTargetSchema);
 
 function summarizeUsage(runs: Run[]): TaskDetail["usageSummary"] {
   const finished = runs.filter((run) => run.endedAt);
-  if (!finished.some((run) => isAuditedHarness(run.harnessName) || run.usage)) return;
+  if (!finished.some((run) => isAuditedHarness(run.harnessName) || run.usage))
+    return;
   const usage = finished.flatMap((run) =>
     run.usage?.scope === "primary_prompt" &&
     run.usage.basis === "token_breakdown_v1"
@@ -440,10 +441,9 @@ export class Store {
         const run = runSchema.parse(JSON.parse(r.data as string));
         return {
           ...run,
-          context:
-            isAuditedHarness(run.harnessName)
-              ? this.latestContext(run.id)
-              : undefined,
+          context: isAuditedHarness(run.harnessName)
+            ? this.latestContext(run.id)
+            : undefined,
         };
       });
     const approvals = runs.flatMap((r) => this.approvals(r.id));
