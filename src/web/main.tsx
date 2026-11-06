@@ -207,9 +207,10 @@ function App() {
   const [targetHarness, setTargetHarness] = useState("");
   const [modelId, setModelId] = useState("");
   const [reasoningEffort, setReasoningEffort] = useState("");
-  const auditedSelected = isAuditedHarness(targetHarness.trim());
+  const targetName = targetHarness.trim().toLowerCase();
+  const auditedSelected = isAuditedHarness(targetName);
   const capabilities = harnesses.find(
-    (h) => h.harnessName === targetHarness.trim() && h.capabilities,
+    (h) => h.harnessName.toLowerCase() === targetName && h.capabilities,
   )?.capabilities;
   const model = capabilities?.models.find(
     (item) => item.id === (modelId || capabilities.defaultModelId),

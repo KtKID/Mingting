@@ -61,10 +61,12 @@ export const auditedHarnessSchema = z.enum([
   "ZCode",
   "DeepSeek",
 ]);
-export const isAuditedHarness = (
-  name: unknown,
-): name is z.infer<typeof auditedHarnessSchema> =>
-  auditedHarnessSchema.safeParse(name).success;
+export function isAuditedHarness(name: string | null | undefined) {
+  const normalized = name?.toLowerCase();
+  return auditedHarnessSchema.options.some(
+    (option) => option.toLowerCase() === normalized,
+  );
+}
 
 const capabilityOptionSchema = z.strictObject({
   id: z.string().min(1).max(160),

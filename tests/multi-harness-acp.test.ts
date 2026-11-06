@@ -14,7 +14,7 @@ import { grokTelemetry } from "../src/server/grok-acp-mapping.js";
 import { zcodeTelemetry } from "../src/server/zcode-acp-mapping.js";
 
 for (const harnessName of ["Grok", "ZCode", "DeepSeek"]) {
-  test(`${harnessName} settings, tools and context are recorded under the owned run`, async () => {
+  test(`${harnessName} settings, tools and context follow the owned run across target casing`, async () => {
     const dir = mkdtempSync(join(tmpdir(), "mingting-harness-audit-"));
     const p = createPlatform({
       dbPath: join(dir, "tasks.sqlite"),
@@ -24,15 +24,16 @@ for (const harnessName of ["Grok", "ZCode", "DeepSeek"]) {
       const owner = { ownerId: randomUUID(), claimId: randomUUID() };
       const generation = randomUUID();
       const modelId = "model-a";
+      const registeredName = harnessName.toLowerCase();
       p.service.registerHarness(
-        { harnessName, ownerId: owner.ownerId },
+        { harnessName: registeredName, ownerId: owner.ownerId },
         generation,
       );
       const task = publishTaskSchema.parse({
         title: "Read",
         description: "Read HELLO.txt",
         publisherName: "Test",
-        targetHarness: harnessName,
+        targetHarness: harnessName.toUpperCase(),
         requestedSettings: { modelId, reasoningEffort: "high" },
       });
       p.service.reportCapabilities({
@@ -48,6 +49,7 @@ for (const harnessName of ["Grok", "ZCode", "DeepSeek"]) {
       });
       const { taskId } = p.service.publish(task);
       const { run } = p.service.claim(taskId, owner, generation);
+      assert.equal(run.harnessName, registeredName);
       const sessionId = "fresh-session";
       p.service.report(run.id, owner, 1, { type: "session", sessionId });
       assert.throws(

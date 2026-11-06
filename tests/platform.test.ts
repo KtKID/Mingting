@@ -12,7 +12,9 @@ import { createPlatform } from "../src/server/http.js";
 import { CodexAdapter } from "../src/server/codex-adapter.js";
 import { TaskConnector } from "../src/connector/connector.js";
 import {
+  detailSchema,
   LIMITS,
+  publishResultSchema,
   publishTaskSchema,
   runSchema,
 } from "../src/shared/protocol.js";
@@ -263,39 +265,49 @@ export async function until<T>(
   throw new Error("Timed out waiting: " + JSON.stringify(value));
 }
 
-test("Codex settings are published by Web and MCP without a capability snapshot", async () => {
+test("Web and MCP publish mixed-case Codex targets with settings before the connector is online", async () => {
   const f = await fixture();
   const p = await f.build(false);
   const client = new Client({ name: "settings-test", version: "1" });
   try {
     const input = {
       title: "settings",
-      description: "publish",
+      description: "[settings-check]",
       publisherName: "Test",
-      targetHarness: "Codex",
-      requestedSettings: { reasoningEffort: "high" },
+      requestedSettings: { modelId: "B", reasoningEffort: "high" },
     };
-    const web = await p.api("/tasks", input);
+    const web = await p.api("/tasks", { ...input, targetHarness: "codex" });
     assert.equal(web.status, 201);
-    assert.deepEqual(
-      p.store.task(web.body.taskId)?.requestedSettings,
-      input.requestedSettings,
-    );
     await client.connect(
       new StreamableHTTPClientTransport(new URL(p.base + "/mcp")),
     );
     const mcp = await client.callTool({
       name: "mcp-mingting-tool",
-      arguments: input,
+      arguments: { ...input, targetHarness: "CoDeX" },
     });
-    const stored = p.store.list().filter((task) => task.title === input.title);
     assert.equal(mcp.isError, undefined);
-    assert.equal(stored.length, 2);
-    assert.ok(
-      stored.every(
-        (task) => task.requestedSettings?.reasoningEffort === "high",
-      ),
-    );
+    const tasks = [
+      [publishResultSchema.parse(web.body).taskId, "codex"],
+      [publishResultSchema.parse(mcp.structuredContent).taskId, "CoDeX"],
+    ];
+    for (const [taskId, target] of tasks) {
+      const task = p.store.task(taskId);
+      assert.equal(task?.status, "queued");
+      assert.equal(task?.targetHarness, target);
+      assert.deepEqual(task?.requestedSettings, input.requestedSettings);
+    }
+
+    p.connector.start();
+    for (const [taskId] of tasks) {
+      const detail = await until(
+        async () => detailSchema.parse((await p.api("/tasks/" + taskId)).body),
+        ({ runs }) => Boolean(runs[0]?.endedAt),
+      );
+      assert.equal(detail.task.status, "succeeded");
+      assert.equal(detail.runs[0]?.harnessName, "Codex");
+      assert.equal(detail.runs[0]?.settingsReceipt?.status, "applied");
+      assert.equal(detail.runs[0]?.output, "executed:B/high");
+    }
   } finally {
     await client.close();
     await p.stop();

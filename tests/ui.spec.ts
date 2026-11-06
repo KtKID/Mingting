@@ -23,7 +23,7 @@ test.afterEach(async ({ page }) => {
       });
   }
 });
-test("Codex publishing form offers per-model effort and displays the receipt", async ({
+test("Codex publishing form offers per-model effort for mixed-case targets", async ({
   page,
 }, info) => {
   const title = `Codex 设置 ${info.project.name}`;
@@ -36,7 +36,9 @@ test("Codex publishing form offers per-model effort and displays the receipt", a
   await form.getByLabel("任务标题").fill(title);
   await form.getByLabel("任务描述").fill("[settings-check]");
   await form.getByLabel("发布人名字").fill("验证");
-  await form.getByLabel("执行者").fill("Codex");
+  await form
+    .getByLabel("执行者")
+    .fill(info.project.name === "desktop" ? "codex" : "CoDeX");
   await expect(
     form
       .getByRole("combobox", { name: "模型", exact: true })
