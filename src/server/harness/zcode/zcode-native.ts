@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { z } from "zod";
 import type { RequestPermissionRequest } from "@agentclientprotocol/sdk";
-import { LIMITS } from "../shared/protocol.js";
+import { LIMITS } from "../../../shared/protocol.js";
 
 // Consumed subset of ZCode CLI 0.17.1's app-server NDJSON dialect.
 const idSchema = z.union([z.string(), z.number()]);

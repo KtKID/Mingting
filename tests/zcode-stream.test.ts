@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { translateZcodeLine } from "../src/server/zcode-stream.js";
-import { applyProgress } from "../src/server/progress.js";
+import { translateZcodeLine } from "../src/server/harness/zcode/zcode-stream.js";
+import { applyProgress } from "../src/server/tasks/progress.js";
 import { LIMITS, runSchema } from "../src/shared/protocol.js";
 
 test("N6 native permission denial closes the waiting tool; allow waits for execution", () => {

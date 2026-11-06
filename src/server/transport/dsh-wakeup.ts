@@ -9,9 +9,9 @@ import {
   dshPublisherContextSchema,
   wakeupResultHeader,
   wakeupResultTextLimit,
-} from "../shared/dsh-wakeup.js";
-import { LIMITS } from "../shared/protocol.js";
-import { AppError, type TaskService } from "./service.js";
+} from "../../shared/dsh-wakeup.js";
+import { LIMITS } from "../../shared/protocol.js";
+import { AppError, type TaskService } from "../tasks/service.js";
 
 const hostSchema = z.strictObject({
   hostId: z.uuid(),

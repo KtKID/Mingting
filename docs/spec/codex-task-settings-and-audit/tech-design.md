@@ -16,9 +16,9 @@
 
 ## 入口来源和现状
 
-**`@agentclientprotocol/codex-acp` 是相对于 OpenAI 的第三方适配器，由 Agent Client Protocol 项目组织维护。底层 `codex app-server` 是 OpenAI 官方实现。** ACP 项目文档把 Codex 列为通过 ACP 项目适配器接入。明庭的 `runtime()` 已经启动本机安装的 2.5.0 包入口，使用 ACP v1 stdio 和项目内的账号配置。 [ACP 的 Codex 条目](https://agentclientprotocol.com/get-started/agents) · [2.5.0 发布](https://github.com/agentclientprotocol/codex-acp/releases/tag/v2.5.0) · [OpenAI App Server](https://developers.openai.com/codex/app-server) · [明庭运行入口](../../../src/server/runtime.ts#L128)
+**`@agentclientprotocol/codex-acp` 是相对于 OpenAI 的第三方适配器，由 Agent Client Protocol 项目组织维护。底层 `codex app-server` 是 OpenAI 官方实现。** ACP 项目文档把 Codex 列为通过 ACP 项目适配器接入。明庭的 `runtime()` 已经启动本机安装的 2.5.0 包入口，使用 ACP v1 stdio 和项目内的账号配置。 [ACP 的 Codex 条目](https://agentclientprotocol.com/get-started/agents) · [2.5.0 发布](https://github.com/agentclientprotocol/codex-acp/releases/tag/v2.5.0) · [OpenAI App Server](https://developers.openai.com/codex/app-server) · [明庭运行入口](../../../src/server/harness/runtime.ts#L151)
 
-当前适配器负责会话、流、权限与清理。普通任务建会话后只设置固定安全模式，prompt 完成时只向连接器返回 `stopReason`。服务已按租约和顺序号提交运行状态。工具更新及上下文通知进入近期事件，网页主要显示当前 run。设计在这条已有路径上增加确认和持久记录。 [当前适配器](../../../src/server/codex-adapter.ts#L195) · [回报事务](../../../src/server/service.ts#L367) · [事件留存](../../../src/server/store.ts#L239)
+当前适配器负责会话、流、权限与清理。普通任务建会话后只设置固定安全模式，prompt 完成时只向连接器返回 `stopReason`。服务已按租约和顺序号提交运行状态。工具更新及上下文通知进入近期事件，网页主要显示当前 run。设计在这条已有路径上增加确认和持久记录。 [当前适配器](../../../src/server/harness/acp/acp-adapter.ts#L112) · [回报事务](../../../src/server/tasks/service.ts#L535) · [事件留存](../../../src/server/storage/store.ts#L400)
 
 <a id="boundary"></a>
 
@@ -40,7 +40,7 @@ flowchart LR
 |---|---|---|
 | 任务设置、运行和权限 | 统一层保存请求、生成运行、校验会话与租约、裁决审批 | `shared/protocol.ts` 的 Zod 契约和 `TaskService`。Web、MCP、连接器使用同一套公共字段 |
 | 执行与有序回传 | 连接器负责认领、保活、按序报告、审批等待 | `connector/connector.ts` 依赖共享执行契约。适配层负责 ACP 请求、流和进程清理 |
-| Codex 专有语义 | 适配层解析模型选项和回执、Usage 扩展、上下文来源并转成公共数据 | 在 `server/codex-adapter.ts` 旁提取局部映射。标准 ACP 类型继续使用 SDK；扩展在边界从 `unknown` 用 Zod 校验 |
+| Codex 专有语义 | 适配层解析模型选项和回执、Usage 扩展、上下文来源并转成公共数据 | 在 `src/server/harness/codex/codex-adapter.ts` 旁提取局部映射。标准 ACP 类型继续使用 SDK；扩展在边界从 `unknown` 用 Zod 校验 |
 | 权威记录和查询 | `tasks` 持有请求，`runs` 持有生效回执和最终用量，`approvals` 持有原请求和决定，新增 `run_audit` 持有工具更新和上下文观测 | 服务是业务写入方。Web、SSE、历史查询消费服务端派生结果 |
 
 依赖方向为入口 → 共享契约与服务 → Store，连接器 → 公共执行接口 ← 适配层。服务和网页无需读取 Codex 私有字段。现有普通审批保留标准 ACP 请求与选项 ID，其他执行器及独立唤醒路径兼容现有行为。

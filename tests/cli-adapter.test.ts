@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CliAdapter } from "../src/server/cli-adapter.js";
-import type { RunHooks } from "../src/server/codex-adapter.js";
+import { CliAdapter } from "../src/server/harness/cli-adapter.js";
+import type { RunHooks } from "../src/server/harness/codex/codex-adapter.js";
 
 const hooks: RunHooks = {
   session: () => {},

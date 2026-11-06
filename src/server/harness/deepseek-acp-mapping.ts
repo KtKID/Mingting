@@ -3,9 +3,9 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { z } from "zod";
-import { normalizeUsage, tokenCount } from "./acp-usage.js";
-import type { AcpTelemetry } from "./acp-adapter.js";
-import type { RunUsage } from "../shared/protocol.js";
+import { normalizeUsage, tokenCount } from "./acp/acp-usage.js";
+import type { AcpTelemetry } from "./acp/acp-adapter.js";
+import type { RunUsage } from "../../shared/protocol.js";
 
 const decompress = promisify(execFile);
 const maxLogBytes = 32 * 1024 * 1024;

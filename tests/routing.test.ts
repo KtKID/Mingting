@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { createServer } from "node:http";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { createPlatform } from "../src/server/http.js";
+import { createPlatform } from "../src/server/transport/http.js";
 import { subscribe, post } from "../src/connector/transport.js";
 import {
   claimResultSchema,

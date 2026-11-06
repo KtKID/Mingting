@@ -1,10 +1,10 @@
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
-import { createPlatform } from "./http.js";
-import { runtime, executableHarnessSchema } from "./runtime.js";
-import { configuredCodexWakeups } from "./codex-wakeup.js";
-import { configuredDshWakeupHost } from "./dsh-wakeup.js";
+import { createPlatform } from "./transport/http.js";
+import { runtime, executableHarnessSchema } from "./harness/runtime.js";
+import { configuredCodexWakeups } from "./wakeup/codex-wakeup.js";
+import { configuredDshWakeupHost } from "./transport/dsh-wakeup.js";
 const port = Number(process.env.PORT ?? 60390);
 if (!Number.isInteger(port) || port < 60001 || port > 65535)
   throw new Error("PORT 必须在 60001–65535 之间");

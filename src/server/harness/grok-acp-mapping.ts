@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { normalizeUsage, rpcRecord, tokenCount } from "./acp-usage.js";
-import type { AcpTelemetry } from "./acp-adapter.js";
+import { normalizeUsage, rpcRecord, tokenCount } from "./acp/acp-usage.js";
+import type { AcpTelemetry } from "./acp/acp-adapter.js";
 
 const grokModels = z.object({
   models: z.object({

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { usageCountsSchema, type RunUsage } from "../shared/protocol.js";
+import { usageCountsSchema, type RunUsage } from "../../../shared/protocol.js";
 
 export const rpcRecord = z.record(z.string(), z.unknown());
 export const tokenCount = usageCountsSchema.shape.totalTokens.unwrap();

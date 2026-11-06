@@ -5,7 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
-import { createPlatform } from "../src/server/http.js";
+import { createPlatform } from "../src/server/transport/http.js";
 import { detailSchema, LIMITS } from "../src/shared/protocol.js";
 
 test("A2 process projection persists thoughts and merges tool patches; duplicate and stale reports are fenced", async () => {

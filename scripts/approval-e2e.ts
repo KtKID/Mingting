@@ -12,7 +12,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { CodexAdapter } from "../src/server/codex-adapter.js";
+import { CodexAdapter } from "../src/server/harness/codex/codex-adapter.js";
 import { TaskConnector } from "../src/connector/connector.js";
 import { localBase } from "../src/connector/transport.js";
 import {

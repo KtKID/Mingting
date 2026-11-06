@@ -20,7 +20,7 @@ import {
   deliveryEventSchema,
   browserWakeupSummarySchema,
   type DeliveryEvent,
-} from "../shared/protocol.js";
+} from "../../shared/protocol.js";
 import type { SessionNotification } from "@agentclientprotocol/sdk";
 import {
   dshWakeupEventSchema,
@@ -31,7 +31,7 @@ import {
   wakeupTargetSchema,
   type WakeupEvent,
   type WakeupTarget,
-} from "../shared/task-wakeup.js";
+} from "../../shared/task-wakeup.js";
 const now = () => new Date().toISOString();
 const storedWakeupTargetSchema = wakeupTargetSchema.or(dshWakeupTargetSchema);
 

@@ -4,7 +4,7 @@ import { z } from "zod";
 import {
   approvalBatchSchema,
   approvalHistorySchema,
-} from "../shared/approval-replay.js";
+} from "../../shared/approval-replay.js";
 
 export async function readApprovalHistory(root: string) {
   const entries = await readdir(resolve(root, "runs"), {

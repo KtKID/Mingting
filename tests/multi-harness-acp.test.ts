@@ -4,14 +4,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
-import { createPlatform } from "../src/server/http.js";
+import { createPlatform } from "../src/server/transport/http.js";
 import { publishTaskSchema } from "../src/shared/protocol.js";
 import {
   deepseekTelemetry,
   mapDeepSeekLog,
-} from "../src/server/deepseek-acp-mapping.js";
-import { grokTelemetry } from "../src/server/grok-acp-mapping.js";
-import { zcodeTelemetry } from "../src/server/zcode-acp-mapping.js";
+} from "../src/server/harness/deepseek-acp-mapping.js";
+import { grokTelemetry } from "../src/server/harness/grok-acp-mapping.js";
+import { zcodeTelemetry } from "../src/server/harness/zcode/zcode-acp-mapping.js";
 
 for (const harnessName of ["Grok", "ZCode", "DeepSeek"]) {
   test(`${harnessName} settings, tools and context follow the owned run across target casing`, async () => {

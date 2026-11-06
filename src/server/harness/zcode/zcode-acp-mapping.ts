@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { normalizeUsage, rpcRecord, tokenCount } from "./acp-usage.js";
-import type { AcpTelemetry } from "./acp-adapter.js";
+import { normalizeUsage, rpcRecord, tokenCount } from "../acp/acp-usage.js";
+import type { AcpTelemetry } from "../acp/acp-adapter.js";
 
 const nativeUsage = z.object({
   sessionId: z.string().min(1),

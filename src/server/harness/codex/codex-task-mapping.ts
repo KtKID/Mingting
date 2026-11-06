@@ -1,5 +1,8 @@
-import { normalizeUsage, rpcRecord, tokenCount } from "./acp-usage.js";
-import { usageCountsSchema, type SettingsReceipt } from "../shared/protocol.js";
+import { normalizeUsage, rpcRecord, tokenCount } from "../acp/acp-usage.js";
+import {
+  usageCountsSchema,
+  type SettingsReceipt,
+} from "../../../shared/protocol.js";
 
 const fields = {
   uncachedInputTokens: "inputTokens",

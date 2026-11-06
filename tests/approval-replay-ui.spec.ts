@@ -18,7 +18,7 @@ import {
   type TaskDetail,
 } from "../src/shared/protocol.js";
 import { loadRecording } from "../scripts/approval-replay-data.js";
-import { CodexAdapter } from "../src/server/codex-adapter.js";
+import { CodexAdapter } from "../src/server/harness/codex/codex-adapter.js";
 import { TaskConnector } from "../src/connector/connector.js";
 import { atomicJson } from "../scripts/approval-archive.js";
 

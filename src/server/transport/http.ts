@@ -18,17 +18,17 @@ import {
   subscriberDecisionSchema,
   approvalWaitSchema,
   type DeliveryEvent,
-} from "../shared/protocol.js";
-import { Store } from "./store.js";
-import { TaskService, AppError } from "./service.js";
-import { readApprovalHistory } from "./approval-history.js";
-import type { WakeupDelivery } from "./task-wakeup.js";
+} from "../../shared/protocol.js";
+import { Store } from "../storage/store.js";
+import { TaskService, AppError } from "../tasks/service.js";
+import { readApprovalHistory } from "../storage/approval-history.js";
+import type { WakeupDelivery } from "../wakeup/task-wakeup.js";
 import { dshWakeupRouter, type DshWakeupHost } from "./dsh-wakeup.js";
-import { wakeupAcknowledgementSchema } from "../shared/task-wakeup.js";
+import { wakeupAcknowledgementSchema } from "../../shared/task-wakeup.js";
 import {
   publisherContextKey,
   publishTaskToolName,
-} from "../shared/dsh-wakeup.js";
+} from "../../shared/dsh-wakeup.js";
 
 function withTaskUrl<T extends { taskId: string }>(req: Request, receipt: T) {
   return {

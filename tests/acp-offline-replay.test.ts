@@ -7,12 +7,15 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { TaskConnector } from "../src/connector/connector.js";
-import { AcpAdapter, type AdapterConfig } from "../src/server/acp-adapter.js";
-import { CodexAdapter } from "../src/server/codex-adapter.js";
-import { deepseekTelemetry } from "../src/server/deepseek-acp-mapping.js";
-import { grokTelemetry } from "../src/server/grok-acp-mapping.js";
-import { createPlatform } from "../src/server/http.js";
-import { zcodeTelemetry } from "../src/server/zcode-acp-mapping.js";
+import {
+  AcpAdapter,
+  type AdapterConfig,
+} from "../src/server/harness/acp/acp-adapter.js";
+import { CodexAdapter } from "../src/server/harness/codex/codex-adapter.js";
+import { deepseekTelemetry } from "../src/server/harness/deepseek-acp-mapping.js";
+import { grokTelemetry } from "../src/server/harness/grok-acp-mapping.js";
+import { createPlatform } from "../src/server/transport/http.js";
+import { zcodeTelemetry } from "../src/server/harness/zcode/zcode-acp-mapping.js";
 import {
   auditPageSchema,
   bootstrapSchema,

@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
-import { createPlatform } from "../src/server/http.js";
+import { createPlatform } from "../src/server/transport/http.js";
 import { dshPublishSchema } from "../src/shared/dsh-wakeup.js";
 import { browserSnapshotSchema } from "../src/shared/protocol.js";
 

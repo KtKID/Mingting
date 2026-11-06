@@ -10,11 +10,11 @@ import {
 } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { CodexAdapter } from "../src/server/codex-adapter.js";
+import { CodexAdapter } from "../src/server/harness/codex/codex-adapter.js";
 import {
   mapZcodePermission,
   nativeDeferred,
-} from "../src/server/zcode-native.js";
+} from "../src/server/harness/zcode/zcode-native.js";
 import { fakeZcodeNative } from "./zcode-fixture.js";
 import type { RequestPermissionResponse } from "@agentclientprotocol/sdk";
 

@@ -7,9 +7,9 @@ import { resolve, join } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import { loadRecording, optionFor } from "../scripts/approval-replay-data.js";
-import { CodexAdapter } from "../src/server/codex-adapter.js";
+import { CodexAdapter } from "../src/server/harness/codex/codex-adapter.js";
 import { TaskConnector } from "../src/connector/connector.js";
-import { createPlatform } from "../src/server/http.js";
+import { createPlatform } from "../src/server/transport/http.js";
 
 test("AR1 the default fixture is self-contained and private replay sources are verified when supplied", async () => {
   const data = await loadRecording();

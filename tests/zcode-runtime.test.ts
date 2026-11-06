@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { resolve, join } from "node:path";
-import { runtime } from "../src/server/runtime.js";
+import { runtime } from "../src/server/harness/runtime.js";
 import { fakeZcodeNative } from "./zcode-fixture.js";
 
 test("Z5 ZCode ACP child uses project account and HOME roots, with native thought/tool streaming", async () => {

@@ -6,8 +6,8 @@ import type {
   WakeupEvent,
   WakeupHostStatus,
   WakeupTarget,
-} from "../shared/task-wakeup.js";
-import { CodexAdapter } from "./codex-adapter.js";
+} from "../../shared/task-wakeup.js";
+import { CodexAdapter } from "../harness/codex/codex-adapter.js";
 import { wakeupMessage, type WakeupDelivery } from "./task-wakeup.js";
 export { wakeupMessage } from "./task-wakeup.js";
 

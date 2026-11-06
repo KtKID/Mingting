@@ -1,7 +1,11 @@
-import { AcpAdapter, type AdapterConfig } from "./acp-adapter.js";
+import { AcpAdapter, type AdapterConfig } from "../acp/acp-adapter.js";
 import { codexModelWindow, codexUsage } from "./codex-task-mapping.js";
 
-export type { AdapterConfig, RunHooks, TaskExecutor } from "./acp-adapter.js";
+export type {
+  AdapterConfig,
+  RunHooks,
+  TaskExecutor,
+} from "../acp/acp-adapter.js";
 
 export class CodexAdapter extends AcpAdapter {
   constructor(config: AdapterConfig) {

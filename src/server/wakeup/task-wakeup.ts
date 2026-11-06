@@ -2,8 +2,8 @@ import type {
   WakeupEvent,
   WakeupHostStatus,
   WakeupTarget,
-} from "../shared/task-wakeup.js";
-import type { Store } from "./store.js";
+} from "../../shared/task-wakeup.js";
+import type { Store } from "../storage/store.js";
 
 export type WakeupDelivery = {
   status(): WakeupHostStatus;

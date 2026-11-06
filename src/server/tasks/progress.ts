@@ -1,5 +1,5 @@
 import type { SessionNotification } from "@agentclientprotocol/sdk";
-import { LIMITS, type Run } from "../shared/protocol.js";
+import { LIMITS, type Run } from "../../shared/protocol.js";
 
 const secretField =
   /^(authorization|cookie|set-cookie|api[_-]?key|access[_-]?token|refresh[_-]?token|password|client[_-]?secret)$/i;

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
-import { CodexAdapter } from "../src/server/codex-adapter.js";
+import { CodexAdapter } from "../src/server/harness/codex/codex-adapter.js";
 test("A9 Grok cached-token ACP supports launch plan without advertised modes; Codex keeps required workspace mode", async () => {
   const base = {
     command: process.execPath,

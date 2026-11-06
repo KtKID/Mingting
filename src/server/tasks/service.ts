@@ -24,23 +24,26 @@ import {
   type Approval,
   type SubscriberDecision,
   type ApprovalSubscription,
-} from "../shared/protocol.js";
-import { Store } from "./store.js";
-import { validateAcp } from "./acp-validation.js";
+} from "../../shared/protocol.js";
+import { Store } from "../storage/store.js";
+import { validateAcp } from "../harness/acp/acp-validation.js";
 import { applyProgress } from "./progress.js";
-import { approvalPrompt } from "../shared/approval.js";
+import { approvalPrompt } from "../../shared/approval.js";
 import {
   taskResultEventSchema,
   type DshAck,
   type DshPublish,
   type DshPublisherContext,
-} from "../shared/dsh-wakeup.js";
-import { WakeupDispatcher, type WakeupDelivery } from "./task-wakeup.js";
+} from "../../shared/dsh-wakeup.js";
+import {
+  WakeupDispatcher,
+  type WakeupDelivery,
+} from "../wakeup/task-wakeup.js";
 import {
   wakeupAcknowledgementSchema,
   type WakeupAcknowledgement,
   type DshWakeupTarget,
-} from "../shared/task-wakeup.js";
+} from "../../shared/task-wakeup.js";
 export class AppError extends Error {
   constructor(
     public status: number,

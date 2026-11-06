@@ -8,7 +8,7 @@ import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import {
   CodexWakeupDelivery,
   codexWakeupConfig,
-} from "../src/server/codex-wakeup.js";
+} from "../src/server/wakeup/codex-wakeup.js";
 import {
   publishTaskSchema,
   publishResultSchema,

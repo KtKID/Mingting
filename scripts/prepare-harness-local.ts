@@ -3,7 +3,10 @@ import { constants } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import { projectDirectory, projectPath } from "../src/server/local-path.js";
+import {
+  projectDirectory,
+  projectPath,
+} from "../src/server/harness/local-path.js";
 
 const keepExisting = (error: unknown) => {
   const parsed = z.object({ code: z.string() }).safeParse(error);

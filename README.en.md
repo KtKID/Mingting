@@ -237,7 +237,7 @@ The default run includes backend and offline ACP replay, the build, desktop and 
 MVP 0.2 passed 21 backend/subscription integration tests, four desktop/mobile browser tests and TypeScript/Vite build checks. These include actual HTTP MCP/SSE, a separate connector process and fake ACP processes, including cancellation of a deliberately unresponsive child. See the [detailed test report](docs/TEST-REPORT.md) for limits and evidence. No real model or real Codex tool-permission end-to-end result is claimed.
 
 - `src/shared/protocol.ts`: schemas, derived types and limits.
-- `src/server/`: SQLite task state, HTTP/MCP/subscription endpoints, approval handling and Codex ACP adapter.
+- `src/server/`: `main.ts` starts the service. `transport/` handles requests, `tasks/` coordinates task state, `storage/` handles persistence, `wakeup/` delivers completion events, and `harness/` contains execution adapters.
 - `src/connector/`: SSE reception, claims, heartbeats, ACP execution and reporting.
 - `src/web/`: task list, publishing form and human approvals.
 - `scripts/publish-task.ts`: MCP SDK client example.

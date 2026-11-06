@@ -8,8 +8,8 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { createPlatform } from "../src/server/http.js";
-import { CodexAdapter } from "../src/server/codex-adapter.js";
+import { createPlatform } from "../src/server/transport/http.js";
+import { CodexAdapter } from "../src/server/harness/codex/codex-adapter.js";
 import { TaskConnector } from "../src/connector/connector.js";
 import {
   detailSchema,
@@ -18,7 +18,7 @@ import {
   publishTaskSchema,
   runSchema,
 } from "../src/shared/protocol.js";
-import { Store } from "../src/server/store.js";
+import { Store } from "../src/server/storage/store.js";
 
 test("Codex contract accepts settings and validates optional run usage while preserving old rows", () => {
   const task = { title: "Task", description: "Read", publisherName: "Test" };
@@ -1157,7 +1157,7 @@ test("server restart recovers persisted crash state and queued task; no auto-res
     );
     await p.stop();
     // Reconstruct the exact durable records an ungraceful crash leaves. No live callback survives.
-    const { Store } = await import("../src/server/store.js");
+    const { Store } = await import("../src/server/storage/store.js");
     const store = new Store(resolve(f.dir, "tasks.sqlite"));
     const task = d.task,
       run = d.runs[0],

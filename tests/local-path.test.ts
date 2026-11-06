@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, symlink, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { projectDirectory, projectPath } from "../src/server/local-path.js";
+import {
+  projectDirectory,
+  projectPath,
+} from "../src/server/harness/local-path.js";
 
 test("A11 project state rejects external, live symlink and dangling symlink destinations", async () => {
   await mkdir("var", { recursive: true });

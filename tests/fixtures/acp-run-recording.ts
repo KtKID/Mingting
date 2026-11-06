@@ -4,7 +4,7 @@ import type {
   SessionNotification,
 } from "@agentclientprotocol/sdk";
 import { z } from "zod";
-import { validateAcp } from "../../src/server/acp-validation.js";
+import { validateAcp } from "../../src/server/harness/acp/acp-validation.js";
 import {
   auditedHarnessSchema,
   capabilitySnapshotSchema,

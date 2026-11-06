@@ -1,4 +1,4 @@
-import { runtime } from "../server/runtime.js";
+import { runtime } from "../server/harness/runtime.js";
 import { TaskConnector } from "./connector.js";
 const config = runtime();
 const connector = new TaskConnector(

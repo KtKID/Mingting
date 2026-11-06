@@ -24,7 +24,7 @@ import {
   type RunUsage,
   type ContextObservation,
   contextObservationSchema,
-} from "../shared/protocol.js";
+} from "../../../shared/protocol.js";
 import {
   applySettings,
   choices,

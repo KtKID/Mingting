@@ -1,5 +1,5 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
-import type { RequestedSettings } from "../shared/protocol.js";
+import type { RequestedSettings } from "../../../shared/protocol.js";
 
 export function selectOption(
   options: SessionConfigOption[] | undefined,

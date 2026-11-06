@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { CodexAdapter } from "../src/server/codex-adapter.js";
+import { CodexAdapter } from "../src/server/harness/codex/codex-adapter.js";
 import { fakeZcodeNative } from "./zcode-fixture.js";
 test("A10 ZCode bridge streams UTF-8 before exit and handles batch, malformed data, exit failure and cancellation", async () => {
   const dir = await mkdtemp(join(tmpdir(), "zcode-bridge-"));

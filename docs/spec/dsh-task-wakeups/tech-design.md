@@ -100,7 +100,7 @@ Kongming 自有插件使用 `defineTool` 注册工具，采用现有 `kmh-team` 
 
 - 功能基线为同目录 `spec.md`，SHA-256 为 `6fff53fad14c1224e19ac36ccdca1e181c3a73284fabc83629a32e9129029c27`。确认来源是用户本轮「按这个方案实现」及其指定的两个实际会话、自动绑定和交错完成。
 - 技术基线为上轮修正并行时序后的草案，SHA-256 为 `3fc2a3f00a1f690cbfdca5f72f9964ff1d10e8c3e0f2a657789d4cfd62503e04`。确认依据是本轮用户明确要求继续 req 和 x-dev。
-- 明庭现有依据包括 `src/server/service.ts` 的 `publish`、`claim`，`src/server/store.ts` 的 `publish`、`saveRun` 和 `enqueueWakeup`，以及 `src/server/kongming-wakeup.ts` 的单会话验证。
+- 明庭现有依据包括 `src/server/tasks/service.ts` 的 `publish`、`claim`，`src/server/storage/store.ts` 的 `publish`、`saveRun` 和 `enqueueWakeup`，以及 `src/server/kongming-wakeup.ts` 的单会话验证。
 - DSH 依据包括 `packages/kmh-team/src/roles/tool.ts` 的 `exec.agent` 用法，以及上游 `packages/api/session-controller/src/commands.ts` 的 `prompt` 和 `hasPromptRequest`。Kongming 的子模块修改边界及浏览器验收以其仓库 `AGENTS.md` 为准。
 
 | 规则                    | 落实与检查                                                                                  |

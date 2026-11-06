@@ -72,7 +72,7 @@ const requestSchema = z.object({
 
 async function readProjectJson(path: string) {
   const root = await realpath(
-    resolve(dirname(fileURLToPath(import.meta.url)), "../.."),
+    resolve(dirname(fileURLToPath(import.meta.url)), "../../../.."),
   );
   const actual = await realpath(path);
   const rel = relative(root, actual);

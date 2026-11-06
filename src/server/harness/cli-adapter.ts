@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { z } from "zod";
-import { LIMITS } from "../shared/protocol.js";
-import type { RunHooks, TaskExecutor } from "./codex-adapter.js";
+import { LIMITS } from "../../shared/protocol.js";
+import type { RunHooks, TaskExecutor } from "./codex/codex-adapter.js";
 
 const grokResultSchema = z.object({
   text: z.string().trim().min(1),

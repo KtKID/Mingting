@@ -12,14 +12,14 @@ import {
   type SessionConfigOption,
 } from "@agentclientprotocol/sdk";
 import { LIMITS } from "../src/shared/protocol.js";
-import { translateZcodeLine } from "../src/server/zcode-stream.js";
+import { translateZcodeLine } from "../src/server/harness/zcode/zcode-stream.js";
 import {
   ZcodeNative,
   nativeSessionSchema,
   mapZcodePermission,
   nativeDeferred,
-} from "../src/server/zcode-native.js";
-import { loadZcodeAccount } from "../src/server/zcode-account.js";
+} from "../src/server/harness/zcode/zcode-native.js";
+import { loadZcodeAccount } from "../src/server/harness/zcode/zcode-account.js";
 import { z } from "zod";
 
 const workspace = realpathSync(
@@ -95,7 +95,7 @@ let onRequest:
 let onEvent:
   | ((
       event: z.infer<
-        typeof import("../src/server/zcode-native.js").nativeEventSchema
+        typeof import("../src/server/harness/zcode/zcode-native.js").nativeEventSchema
       >,
     ) => Promise<void>)
   | undefined;

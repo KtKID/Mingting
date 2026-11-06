@@ -247,3 +247,9 @@ npm test
 源码包不含 node_modules、.env、数据库、凭据或运行数据。既有私有 Sites 页面仍是浏览器本地演示，此次后端更新不会使 Sites 自动具备 Node 子进程能力，也未自动改动或部署它。
 
 官方项目：[Codex ACP](https://github.com/agentclientprotocol/codex-acp)、[ACP SDK](https://github.com/agentclientprotocol/typescript-sdk)、[MCP SDK](https://github.com/modelcontextprotocol/typescript-sdk)。
+
+## 服务端源码布局
+
+[`src/server/main.ts`](src/server/main.ts) 启动服务和连接器。`transport/` 接收 Web、MCP、连接器及 DSH 宿主请求。`tasks/` 管理任务、运行和审批。`storage/` 管理 SQLite 与审批回放归档读取。`wakeup/` 调度完成通知并向 Codex 会话投递。`harness/` 选择并运行适配器，ACP 共用实现和各 Harness 的专有映射分开维护。
+
+- 2026-11-06 · 目录调整 · [服务端脚本分组迁移](docs/task/task-server-module-layout.md) · 已完成

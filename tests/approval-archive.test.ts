@@ -11,7 +11,7 @@ import {
   finishApprovalArchive,
   preserveManualReport,
 } from "../scripts/approval-archive.js";
-import { readApprovalHistory } from "../src/server/approval-history.js";
+import { readApprovalHistory } from "../src/server/storage/approval-history.js";
 import {
   replayCaseSchema,
   approvalBatchSchema,

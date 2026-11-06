@@ -8,8 +8,8 @@ import { createServer } from "node:http";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { RequestPermissionRequest } from "@agentclientprotocol/sdk";
-import { createPlatform } from "../src/server/http.js";
-import { CodexAdapter } from "../src/server/codex-adapter.js";
+import { createPlatform } from "../src/server/transport/http.js";
+import { CodexAdapter } from "../src/server/harness/codex/codex-adapter.js";
 import { TaskConnector } from "../src/connector/connector.js";
 import { approvalPrompt, approvalOption } from "../src/shared/approval.js";
 import {

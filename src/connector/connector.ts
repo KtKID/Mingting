@@ -13,7 +13,10 @@ import {
   type ConnectorUpdate,
   type RunUsage,
 } from "../shared/protocol.js";
-import type { RunHooks, TaskExecutor } from "../server/acp-adapter.js";
+import type {
+  RunHooks,
+  TaskExecutor,
+} from "../server/harness/acp/acp-adapter.js";
 import { subscribe, post, localBase, HttpError } from "./transport.js";
 export class TaskConnector {
   readonly ownerId = randomUUID();

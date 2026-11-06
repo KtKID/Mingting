@@ -12,8 +12,8 @@ import {
   browserSnapshotSchema,
   publishResultSchema,
 } from "../src/shared/protocol.js";
-import { createPlatform } from "../src/server/http.js";
-import type { WakeupDelivery } from "../src/server/task-wakeup.js";
+import { createPlatform } from "../src/server/transport/http.js";
+import type { WakeupDelivery } from "../src/server/wakeup/task-wakeup.js";
 import type { WakeupEvent } from "../src/shared/task-wakeup.js";
 import {
   validateWakeupReplay,
@@ -23,7 +23,7 @@ import {
   CodexWakeupDelivery,
   configuredCodexWakeups,
   wakeupMessage,
-} from "../src/server/codex-wakeup.js";
+} from "../src/server/wakeup/codex-wakeup.js";
 
 async function fixture(fail = false) {
   const dir = await mkdtemp(join(tmpdir(), "mingting-wakeup-"));

@@ -6,7 +6,7 @@ import { createCipheriv, createHash, randomBytes } from "node:crypto";
 import {
   loadZcodeAccount,
   decryptZcodeCredential,
-} from "../src/server/zcode-account.js";
+} from "../src/server/harness/zcode/zcode-account.js";
 
 const providerId = "account:bigmodel-individual-coding-plan";
 function encrypt(value: string) {

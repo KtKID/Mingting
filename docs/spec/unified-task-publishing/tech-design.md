@@ -15,7 +15,7 @@
 
 ## 整体结构与数据归属
 
-明庭按订阅者、执行者和被唤醒者描述任务角色。现有 MCP 的 `wakeup` 按 UUID 校验，并由已配置的聊天宿主处理。KMH 网页默认会话 ID 可带 `session-` 前缀，发单轮次为整数，现有 KMH 宿主协议已经支持这两种原生值。统一链路要把 KMH 的会话绑定接到标准 MCP 发布，并补齐独立于审批的结果订阅。见[发布校验](../../../src/server/service.ts#L189)、[审批快照](../../../src/server/service.ts#L290)和[KMH 宿主协议](../../../src/shared/dsh-wakeup.ts)。
+明庭按订阅者、执行者和被唤醒者描述任务角色。现有 MCP 的 `wakeup` 按 UUID 校验，并由已配置的聊天宿主处理。KMH 网页默认会话 ID 可带 `session-` 前缀，发单轮次为整数，现有 KMH 宿主协议已经支持这两种原生值。统一链路要把 KMH 的会话绑定接到标准 MCP 发布，并补齐独立于审批的结果订阅。见[发布校验](../../../src/server/tasks/service.ts#L208)、[审批快照](../../../src/server/tasks/service.ts#L369)和[KMH 宿主协议](../../../src/shared/dsh-wakeup.ts)。
 
 ```mermaid
 sequenceDiagram
@@ -152,8 +152,8 @@ KMH 从会话、轮次和工具调用编号计算稳定的发布请求号。明�
 
 | 已读来源 | 现状及设计依据 |
 | --- | --- |
-| [发布与审批服务](../../../src/server/service.ts)、[HTTP 与 MCP 入口](../../../src/server/http.ts) | 网页和 MCP 已共用 `publish`，旧专属发布调用 `publishFromDsh`。现有审批订阅读状态，通用发布已支持绑定并触发唤醒。D01/D02 扩展共同入口及现有订阅传输 |
-| [Store](../../../src/server/store.ts)、[任务和订阅协议](../../../src/shared/protocol.ts)、[唤醒协议](../../../src/shared/task-wakeup.ts) | 运行终态持久保存，旧唤醒按目标类型读写。D02/D03 复用结果来源和投递摘要，区分新旧投递 |
+| [发布与审批服务](../../../src/server/tasks/service.ts)、[HTTP 与 MCP 入口](../../../src/server/transport/http.ts) | 网页和 MCP 已共用 `publish`，旧专属发布调用 `publishFromDsh`。现有审批订阅读状态，通用发布已支持绑定并触发唤醒。D01/D02 扩展共同入口及现有订阅传输 |
+| [Store](../../../src/server/storage/store.ts)、[任务和订阅协议](../../../src/shared/protocol.ts)、[唤醒协议](../../../src/shared/task-wakeup.ts) | 运行终态持久保存，旧唤醒按目标类型读写。D02/D03 复用结果来源和投递摘要，区分新旧投递 |
 | 试点客户端的现有接入 `packages/kmh-kongming/src/mingting.ts` 和原生转发 `third_party/dsh/packages/mcp/mcp-client/src/tools.ts` | 现插件可取 `exec.agent`，原生转发当前发送工具名和业务参数。D03 复用宿主公开能力，在薄桥中附加可信元数据 |
 | [旧设计](../dsh-task-wakeups/tech-design.md)、[审批规则](../../APPROVALS.md)、[仓库验收约定](../../../AGENTS.md) | D04 保留旧链路。真实验收必须从网页进入，原始会话身份由产品生成。审批规则继续沿用 |
 
