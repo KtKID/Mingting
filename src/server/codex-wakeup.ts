@@ -8,7 +8,8 @@ import type {
   WakeupTarget,
 } from "../shared/task-wakeup.js";
 import { CodexAdapter } from "./codex-adapter.js";
-import type { WakeupDelivery } from "./task-wakeup.js";
+import { wakeupMessage, type WakeupDelivery } from "./task-wakeup.js";
+export { wakeupMessage } from "./task-wakeup.js";
 
 const HOST_TIMEOUT_MS = 45000;
 const WAKEUP_TURN_TIMEOUT_MS = 10 * 60 * 1000;
@@ -19,25 +20,6 @@ const configSchema = z.object({
   env: z.record(z.string(), z.string().optional()),
 });
 export type CodexWakeupConfig = z.infer<typeof configSchema>;
-
-export function wakeupMessage(event: WakeupEvent) {
-  return (
-    `[MINGTING_EVENT ${event.id}]\n明庭任务事件：${event.type}\n` +
-    JSON.stringify(
-      {
-        eventId: event.id,
-        taskId: event.taskId,
-        runId: event.runId,
-        approvalId: event.approvalId,
-        threadId: event.target.threadId,
-        originTurnId: event.target.originTurnId,
-        createdAt: event.createdAt,
-      },
-      null,
-      2,
-    )
-  );
-}
 
 /** 事件复用原 Codex 会话；ACP load/prompt 与任务执行使用同一适配器。 */
 export class CodexWakeupDelivery implements WakeupDelivery {

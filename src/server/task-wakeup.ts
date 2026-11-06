@@ -12,6 +12,25 @@ export type WakeupDelivery = {
   close?(): Promise<void>;
 };
 
+export function wakeupMessage(event: WakeupEvent) {
+  return (
+    `[MINGTING_EVENT ${event.id}]\n明庭任务事件：${event.type}\n` +
+    JSON.stringify(
+      {
+        eventId: event.id,
+        taskId: event.taskId,
+        runId: event.runId,
+        approvalId: event.approvalId,
+        threadId: event.target.threadId,
+        originTurnId: event.target.originTurnId,
+        createdAt: event.createdAt,
+      },
+      null,
+      2,
+    )
+  );
+}
+
 export class WakeupDispatcher {
   private running: Promise<void> = Promise.resolve();
   private dirty = false;
