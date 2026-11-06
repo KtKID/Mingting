@@ -154,7 +154,12 @@ function Report() {
         <div className="batch-meta">
           本轮环境：{report?.platform ?? "准备中"} · 批次 {batch.id}
           <div className="stage-results">
-            {batch.stages.map((stage) => (
+            {(batch.uiStage
+              ? [...batch.stages, batch.uiStage].sort((a, b) =>
+                  a.startedAt.localeCompare(b.startedAt),
+                )
+              : batch.stages
+            ).map((stage) => (
               <a
                 key={stage.name}
                 className={stage.exitCode === 0 ? "pass" : "fail"}
@@ -167,6 +172,7 @@ function Report() {
                     recording: "录制输入",
                     unit: "单元检查",
                     build: "构建",
+                    ui: "桌面与手机网页",
                     approval: "审批10用例",
                   }[stage.name]
                 }{" "}

@@ -210,3 +210,54 @@ test("RA5 a real failed subprocess retains exit status, full log and frozen inpu
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("default regression requires a successful browser stage", async () => {
+  const root = await mkdtemp(join(tmpdir(), "approval-default-ui-"));
+  try {
+    for (const exitCode of [undefined, 1, 0]) {
+      const archive = await createApprovalArchive(root, "default");
+      for (const item of archive.report.cases)
+        await atomicJson(
+          resolve(archive.directory, "cases", item.id + ".json"),
+          {
+            ...item,
+            passed: true,
+            phase: "通过",
+          },
+        );
+      const stage = (name: string, code: number) => ({
+        startedAt: archive.manifest.startedAt,
+        finishedAt: archive.manifest.startedAt,
+        exitCode: code,
+        logPath: `runs/${archive.id}/${name}.log`,
+      });
+      for (const name of ["unit", "build", "approval"] as const)
+        archive.manifest.stages.push({ name, ...stage(name, 0) });
+      if (exitCode !== undefined)
+        archive.manifest.uiStage = { name: "ui", ...stage("ui", exitCode) };
+      await finishApprovalArchive(archive);
+      assert.equal(
+        archive.manifest.status,
+        exitCode === 0 ? "passed" : "failed",
+      );
+      if (exitCode === undefined) assert.match(archive.report.error, /网页/);
+      if (exitCode === 1) assert.match(archive.report.error, /ui.*1/);
+      const saved = JSON.parse(
+        await readFile(resolve(archive.directory, "manifest.json"), "utf8"),
+      );
+      assert.deepEqual(
+        approvalBatchSchema
+          .omit({ uiStage: true })
+          .parse(saved)
+          .stages.map((result) => result.name),
+        ["unit", "build", "approval"],
+      );
+      assert.equal(
+        approvalBatchSchema.parse(saved).uiStage?.exitCode,
+        exitCode,
+      );
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

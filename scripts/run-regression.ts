@@ -15,12 +15,15 @@ import {
   preserveManualReport,
   type ApprovalArchive,
 } from "./approval-archive.js";
-import { regressionStageSchema } from "../src/shared/approval-replay.js";
+import {
+  regressionStageSchema,
+  uiRegressionStageSchema,
+} from "../src/shared/approval-replay.js";
 
 const POLL_MS = 500;
 export async function runStage(
   archive: ApprovalArchive,
-  name: "unit" | "build" | "approval",
+  name: z.infer<typeof regressionStageSchema>["name"] | "ui",
   args: string[],
   signal: AbortSignal,
   env: NodeJS.ProcessEnv,
@@ -77,14 +80,16 @@ export async function runStage(
     const exitCode = await exit;
     log.end();
     await logClosed;
-    const stage = regressionStageSchema.parse({
+    const stage = {
       name,
       startedAt,
       finishedAt: new Date().toISOString(),
       exitCode,
       logPath: `runs/${archive.id}/${name}.log`,
-    });
-    archive.manifest.stages.push(stage);
+    };
+    if (name === "ui")
+      archive.manifest.uiStage = uiRegressionStageSchema.parse(stage);
+    else archive.manifest.stages.push(regressionStageSchema.parse(stage));
     await saveApprovalArchive(archive);
     return exitCode;
   } finally {
@@ -120,6 +125,7 @@ export async function runRegression(approvalOnly = false) {
         "inputs/recording.json",
       ),
       APPROVAL_REGRESSION_DB: resolve(privateDirectory, "platform.sqlite"),
+      UI_REGRESSION_DB: resolve(privateDirectory, "ui.sqlite"),
     };
     if (!approvalOnly && !controller.signal.aborted)
       await runStage(
@@ -137,6 +143,14 @@ export async function runRegression(approvalOnly = false) {
         controller.signal,
         env,
       );
+      if (built === 0 && !approvalOnly && !controller.signal.aborted)
+        await runStage(
+          archive,
+          "ui",
+          ["run", "test:ui"],
+          controller.signal,
+          env,
+        );
       if (built === 0 && !controller.signal.aborted)
         await runStage(
           archive,

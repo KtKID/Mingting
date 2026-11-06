@@ -140,7 +140,7 @@ test("A4 answer, reasoning and tools arrive before completion; reconnect and ref
     ),
   ).toBe(true);
   await page.screenshot({
-    path: `reports/approvals/stream-ui-${info.project.name}.png`,
+    path: info.outputPath("stream-ui.png"),
     fullPage: true,
   });
   expect(errors).toEqual([]);
@@ -230,6 +230,7 @@ test("publish, list three required fields, inspect permission and approve in bro
 });
 
 async function publishApprovalTask(page: Page, title: string) {
+  await expect(page.locator(".connection")).toContainText("本机已连接");
   const bootstrap = bootstrapSchema.parse(
     await (await page.request.get("/api/bootstrap")).json(),
   );
@@ -351,7 +352,7 @@ test("PUI1 automatic popup from list, subscriber clock survives refresh, user re
     timerBox && headingBox && timerBox.x > headingBox.x + headingBox.width / 2,
   ).toBeTruthy();
   await page.screenshot({
-    path: `reports/approvals/popup-${info.project.name}.png`,
+    path: info.outputPath("popup.png"),
     fullPage: true,
     animations: "disabled",
   });

@@ -163,10 +163,12 @@ export async function freezeApprovalInputs(archive: ApprovalArchive) {
   }
   const paths = [
     "package.json",
+    "playwright.config.ts",
     "playwright.approval.config.ts",
     "scripts/run-regression.ts",
     "scripts/approval-archive.ts",
     "tests/approval-replay-ui.spec.ts",
+    "tests/ui.spec.ts",
     "scripts/approval-replay-acp.ts",
     "src/shared/approval-replay.ts",
     "src/server/service.ts",
@@ -220,18 +222,19 @@ export async function finishApprovalArchive(
   await refreshApprovalCases(archive);
   archive.report.stopped = true;
   archive.manifest.finishedAt = new Date().toISOString();
+  const { mode, stages, uiStage } = archive.manifest;
+  const failedStages = (uiStage ? [...stages, uiStage] : stages)
+    .filter((stage) => stage.exitCode !== 0)
+    .map((stage) => `${stage.name} 退出码 ${stage.exitCode}`);
+  if (mode === "default" && !uiStage) failedStages.push("网页回归未执行");
   archive.manifest.status =
     status ??
-    (archive.manifest.stages.every((s) => s.exitCode === 0) &&
-    archive.manifest.passed === scenarios.length
+    (failedStages.length === 0 && archive.manifest.passed === scenarios.length
       ? "passed"
       : "failed");
   if (archive.manifest.status !== "passed" && !archive.report.error) {
     archive.report.error =
-      archive.manifest.stages
-        .filter((s) => s.exitCode !== 0)
-        .map((s) => `${s.name} 退出码 ${s.exitCode}`)
-        .join("；") || "本轮存在失败或未执行的审批用例";
+      failedStages.join("；") || "本轮存在失败或未执行的审批用例";
   }
   await saveApprovalArchive(archive);
 }

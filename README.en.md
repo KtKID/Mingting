@@ -230,9 +230,9 @@ Limits are centralized in `src/shared/protocol.ts`: 100 active tasks, the latest
 
 ```bash
 npm test
-npm run build
-PLAYWRIGHT_CHROMIUM_EXECUTABLE=/absolute/path/to/chromium npm run test:ui
 ```
+
+The default run includes backend and offline ACP replay, the build, desktop and mobile browser tests, and all ten approval scenarios. Install Chromium with `npm exec -- playwright install chromium`, or set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to use a local Chromium installation.
 
 MVP 0.2 passed 21 backend/subscription integration tests, four desktop/mobile browser tests and TypeScript/Vite build checks. These include actual HTTP MCP/SSE, a separate connector process and fake ACP processes, including cancellation of a deliberately unresponsive child. See the [detailed test report](docs/TEST-REPORT.md) for limits and evidence. No real model or real Codex tool-permission end-to-end result is claimed.
 

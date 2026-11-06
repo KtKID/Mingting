@@ -102,12 +102,17 @@ export const replayReportSchema = z.object({
 });
 export type ReplayReport = z.infer<typeof replayReportSchema>;
 
-export const regressionStageSchema = z.object({
-  name: z.enum(["recording", "unit", "build", "approval"]),
+const stageResultSchema = z.object({
   startedAt: z.string(),
   finishedAt: z.string(),
   exitCode: z.number(),
   logPath: z.string(),
+});
+export const regressionStageSchema = stageResultSchema.extend({
+  name: z.enum(["recording", "unit", "build", "approval"]),
+});
+export const uiRegressionStageSchema = stageResultSchema.extend({
+  name: z.literal("ui"),
 });
 export const approvalBatchSchema = z.object({
   id: z.string().uuid(),
@@ -123,6 +128,7 @@ export const approvalBatchSchema = z.object({
   failed: z.number().int(),
   skipped: z.number().int(),
   stages: z.array(regressionStageSchema),
+  uiStage: uiRegressionStageSchema.optional(),
 });
 export const approvalHistorySchema = z.object({
   version: z.literal(1),

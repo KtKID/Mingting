@@ -2,7 +2,7 @@
 
 [English](README.en.md)
 
-审批入口位于任务台“发布任务”旁：[审批回放与测试记录](http://127.0.0.1:60390/approval-tests/)。`npm test` / `npm run check` 默认自动运行全部十条审批用例，双方选择、结果填写与每轮归档全部自动完成；页面可选择历史批次。审批回放默认使用仓库中的合成测试数据。原始录制和回归报告保存在本机。已有原始录制的工作区可以通过 `APPROVAL_RECORDING_PATH=reports/approval-e2e/recording.json npm test` 运行本机录制。
+`npm test` / `npm run check` 自动运行后端、离线 ACP 回放、构建、桌面和手机网页，以及十条审批用例。浏览器交互、结果断言和归档都自动执行，历史批次可在任务台查看。默认使用仓库内的测试数据。已有原始录制的工作区可通过 `APPROVAL_RECORDING_PATH=reports/approval-e2e/recording.json npm test` 使用本机录制。 [审批回放与测试记录](http://127.0.0.1:60390/approval-tests/)
 
 连接人与 Agent 的共享任务工作空间。当前版本：MVP 0.2，含本机 Harness 身份订阅扩展。
 
@@ -238,9 +238,9 @@ data: {"id":42,"type":"task.available","taskId":"<UUID>","createdAt":"<ISO时间
 
 ```bash
 npm test
-npm run build
-PLAYWRIGHT_CHROMIUM_EXECUTABLE=/absolute/path/to/chromium npm run test:ui
 ```
+
+初次运行可用 `npm exec -- playwright install chromium` 准备浏览器。已有 Chromium 可用 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 指定。
 
 测试使用真实 HTTP MCP、真实 HTTP SSE、独立连接器进程以及假 ACP 子进程，真实问候验证另见 [本次 qdev 记录](docs/task/task-harness-subscriptions.md)。历史测试事实见 [测试报告](docs/TEST-REPORT.md)。
 
