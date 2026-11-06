@@ -32,7 +32,7 @@ test("Codex contract accepts settings and validates optional run usage while pre
   assert.equal(
     publishTaskSchema.safeParse({
       ...task,
-      targetHarness: "Grok",
+      targetHarness: "UnknownHarness",
       requestedSettings: settings,
     }).success,
     false,

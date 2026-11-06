@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { homedir, userInfo } from "node:os";
 import { createRequire } from "node:module";
 import { CodexAdapter } from "./codex-adapter.js";
+import { AcpAdapter, type AdapterConfig } from "./acp-adapter.js";
 import { z } from "zod";
 import { projectDirectory as localRoot, projectPath } from "./local-path.js";
 export const executableHarnessSchema = z.enum(["Codex", "ZCode", "Grok"]);
@@ -70,6 +71,14 @@ export function runtime() {
       delete env[key];
   }
   const nativeEnv: NodeJS.ProcessEnv = { ...env };
+  for (const key of [
+    "CODEX_HOME",
+    "CODEX_API_KEY",
+    "OPENAI_API_KEY",
+    "CODEX_CONFIG",
+    "INITIAL_AGENT_MODE",
+  ])
+    delete nativeEnv[key];
   // Existing CLI accounts remain in their own login store. Only explicit runtime overrides pass through.
   for (const key of [
     "ZCODE_BUILTIN_PROVIDER_CONFIG_FILE",
@@ -125,7 +134,7 @@ export function runtime() {
       env.HOME = localRoot("var/codex-local/home");
     }
   }
-  const adapter = new CodexAdapter({
+  const config: AdapterConfig = {
     mode: fake ? "fake" : "codex",
     harnessName,
     command: !fake && harnessName === "Grok" ? "grok" : process.execPath,
@@ -170,7 +179,9 @@ export function runtime() {
       : harnessName === "Codex"
         ? env
         : nativeEnv,
-  });
+  };
+  const adapter =
+    harnessName === "Codex" ? new CodexAdapter(config) : new AcpAdapter(config);
   return {
     workspace,
     adapter,

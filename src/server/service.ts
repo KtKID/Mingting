@@ -8,6 +8,7 @@ import type {
 } from "@agentclientprotocol/sdk";
 import {
   LIMITS,
+  isAuditedHarness,
   publishTaskSchema,
   type PublishTask,
   type Decision,
@@ -85,10 +86,10 @@ export class TaskService {
     const entry = this.subscriptions.get(report.ownerId);
     if (
       !entry ||
-      entry.identity.harnessName !== "Codex" ||
+      !isAuditedHarness(entry.identity.harnessName) ||
       entry.generation !== report.generation
     )
-      throw new AppError(409, "能力快照不属于当前 Codex 连接");
+      throw new AppError(409, "能力快照不属于当前执行器连接");
     entry.capabilities = report.capabilities;
     this.events.emit("changed");
   }
@@ -419,7 +420,7 @@ export class TaskService {
         const requested = t.requestedSettings;
         const { receipt } = update;
         if (
-          r.harnessName !== "Codex" ||
+          !isAuditedHarness(r.harnessName) ||
           r.status === "cancelled" ||
           r.sessionId !== update.sessionId ||
           r.settingsReceipt ||
@@ -440,12 +441,12 @@ export class TaskService {
         r.discovery = update.discovery;
       } else if (update.type === "context") {
         if (
-          r.harnessName !== "Codex" ||
+          !isAuditedHarness(r.harnessName) ||
           update.sessionId !== r.sessionId ||
           !r.settingsReceipt ||
           r.settingsReceipt.status === "rejected"
         )
-          throw new AppError(400, "上下文观测不属于当前 Codex 会话");
+          throw new AppError(400, "上下文观测不属于当前执行会话");
         if (r.status !== "cancelled")
           this.store.appendRunAudit({
             kind: "context",
@@ -464,7 +465,7 @@ export class TaskService {
         if (r.status !== "cancelled") {
           this.store.appendEvent(runId, update.notification);
           const tool = applyProgress(r, update.notification);
-          if (tool && r.harnessName === "Codex")
+          if (tool && isAuditedHarness(r.harnessName))
             this.store.appendRunAudit({
               kind: "tool",
               runId,
@@ -477,14 +478,20 @@ export class TaskService {
       } else if (update.type === "finished") {
         if (update.status === "succeeded" && update.stopReason !== "end_turn")
           throw new AppError(400, "完成状态必须来自 ACP end_turn");
+        if (
+          update.status === "succeeded" &&
+          t.requestedSettings &&
+          r.settingsReceipt?.status !== "applied"
+        )
+          throw new AppError(409, "显式设置任务缺少生效回执");
         if (update.usage) {
           if (
-            r.harnessName !== "Codex" ||
+            !isAuditedHarness(r.harnessName) ||
             update.usage.source.sessionId !== r.sessionId ||
             !r.settingsReceipt ||
             r.settingsReceipt.status === "rejected"
           )
-            throw new AppError(400, "用量不属于当前 Codex 回合");
+            throw new AppError(400, "用量不属于当前执行回合");
           r.usage = update.usage;
         }
         if (r.status !== "cancelled") {

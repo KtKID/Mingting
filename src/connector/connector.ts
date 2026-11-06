@@ -3,6 +3,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import type { RequestPermissionResponse } from "@agentclientprotocol/sdk";
 import {
   LIMITS,
+  isAuditedHarness,
   claimResultSchema,
   heartbeatResultSchema,
   approvalCreatedSchema,
@@ -12,7 +13,7 @@ import {
   type ConnectorUpdate,
   type RunUsage,
 } from "../shared/protocol.js";
-import type { RunHooks, TaskExecutor } from "../server/codex-adapter.js";
+import type { RunHooks, TaskExecutor } from "../server/acp-adapter.js";
 import { subscribe, post, localBase, HttpError } from "./transport.js";
 export class TaskConnector {
   readonly ownerId = randomUUID();
@@ -85,7 +86,7 @@ export class TaskConnector {
   }
   private maybeProbe() {
     if (
-      this.harnessName !== "Codex" ||
+      !isAuditedHarness(this.harnessName) ||
       !this.generation ||
       this.stop.signal.aborted ||
       this.probed ||
@@ -300,7 +301,7 @@ export class TaskConnector {
           }
         },
       };
-      if (this.harnessName === "Codex" && this.adapter.executeTask) {
+      if (isAuditedHarness(this.harnessName) && this.adapter.executeTask) {
         const result = await this.adapter.executeTask(
           text,
           abort.signal,
@@ -312,7 +313,25 @@ export class TaskConnector {
         ({ stopReason, usage } = result);
         if (result.error) throw new Error(result.error);
         if (abort.signal.aborted && !cancelled) abort.signal.throwIfAborted();
-      } else stopReason = await this.adapter.execute(text, abort.signal, hooks);
+      } else {
+        if (claim.task.requestedSettings) {
+          const reason = "当前执行器无法确认任务设置";
+          await enqueue({
+            type: "settings",
+            sessionId: null,
+            receipt: {
+              status: "rejected",
+              modelId: null,
+              reasoningEffort: null,
+              modelWindow: null,
+              reason,
+              confirmedAt: new Date().toISOString(),
+            },
+          });
+          throw new Error(reason);
+        }
+        stopReason = await this.adapter.execute(text, abort.signal, hooks);
+      }
       await reports;
       status =
         stopReason === "end_turn"

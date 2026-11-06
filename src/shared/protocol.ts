@@ -51,6 +51,12 @@ export const harnessSubscriptionSchema = z
     harnessName: harnessNameSchema,
   })
   .strict();
+export const auditedHarnessSchema = z.enum(["Codex"]);
+export const isAuditedHarness = (
+  name: unknown,
+): name is z.infer<typeof auditedHarnessSchema> =>
+  auditedHarnessSchema.safeParse(name).success;
+
 const capabilityOptionSchema = z.strictObject({
   id: z.string().min(1).max(160),
   name: z.string().min(1).max(160),
@@ -125,6 +131,9 @@ export const runUsageSchema = usageCountsSchema.extend({
   basis: z.literal("token_breakdown_v1"),
   coverage: z.enum(["complete", "partial", "missing"]),
   inconsistent: z.boolean(),
+  cost: z
+    .object({ currency: z.literal("USD"), amount: z.number().nonnegative() })
+    .optional(),
   modelId: optionId.nullable(),
   missingReason: z.string().optional(),
   source: z.object({
@@ -134,12 +143,13 @@ export const runUsageSchema = usageCountsSchema.extend({
     method: z.string(),
     fieldPath: z.string(),
     sessionId: z.string().min(1),
+    upstreamSessionId: z.string().min(1).optional(),
   }),
 });
 export const contextObservationSchema = z.strictObject({
   usedTokens: tokens,
-  effectiveWindowTokens: tokens.positive(),
-  source: z.literal("acp_usage_update"),
+  effectiveWindowTokens: tokens.positive().nullable(),
+  source: z.enum(["acp_usage_update", "grok_acp_session_meta"]),
 });
 export type RequestedSettings = z.infer<typeof requestedSettingsSchema>;
 export type SettingsReceipt = z.infer<typeof settingsReceiptSchema>;
@@ -158,8 +168,8 @@ const publishFieldsSchema = z
   })
   .strict();
 export const publishTaskSchema = publishFieldsSchema.refine(
-  (task) => !task.requestedSettings || task.targetHarness === "Codex",
-  { path: ["targetHarness"], message: "显式模型设置仅支持 Codex 任务" },
+  (task) => !task.requestedSettings || isAuditedHarness(task.targetHarness),
+  { path: ["targetHarness"], message: "显式模型设置需要指定支持设置的执行器" },
 );
 export const taskStatusSchema = z.enum([
   "queued",

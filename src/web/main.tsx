@@ -10,6 +10,8 @@ import { z } from "zod";
 import {
   bootstrapSchema,
   LIMITS,
+  auditedHarnessSchema,
+  isAuditedHarness,
   publishResultSchema,
   browserSnapshotSchema,
   auditPageSchema,
@@ -195,15 +197,15 @@ function App() {
   const [targetHarness, setTargetHarness] = useState("");
   const [modelId, setModelId] = useState("");
   const [reasoningEffort, setReasoningEffort] = useState("");
-  const codexSelected = targetHarness.trim() === "Codex";
+  const auditedSelected = isAuditedHarness(targetHarness.trim());
   const capabilities = harnesses.find(
-    (h) => h.harnessName === "Codex" && h.capabilities,
+    (h) => h.harnessName === targetHarness.trim() && h.capabilities,
   )?.capabilities;
   const model = capabilities?.models.find(
     (item) => item.id === (modelId || capabilities.defaultModelId),
   );
   const invalidSettings =
-    codexSelected &&
+    auditedSelected &&
     Boolean(
       (modelId && !model) ||
       (reasoningEffort &&
@@ -372,7 +374,7 @@ function App() {
     values.approvalTargets = data.getAll("approvalTargets");
     if (values.targetHarness === "") delete values.targetHarness;
     if (invalidSettings) return;
-    if (codexSelected && (modelId || reasoningEffort))
+    if (auditedSelected && (modelId || reasoningEffort))
       values.requestedSettings = {
         modelId: modelId || undefined,
         reasoningEffort: reasoningEffort || undefined,
@@ -676,9 +678,7 @@ function App() {
               <datalist id="harness-options">
                 {[
                   ...new Set([
-                    "Codex",
-                    "ZCode",
-                    "Grok",
+                    ...auditedHarnessSchema.options,
                     ...harnesses.map((h) => h.harnessName),
                   ]),
                 ].map((name) => (
@@ -686,7 +686,7 @@ function App() {
                 ))}
               </datalist>
             </label>
-            {codexSelected &&
+            {auditedSelected &&
               (capabilities ? (
                 <>
                   <label>
@@ -723,7 +723,7 @@ function App() {
                 </>
               ) : (
                 <p className="small muted">
-                  Codex 显式选项暂不可发现，仍可使用默认设置。
+                  {targetHarness.trim()} 显式选项暂不可发现，仍可使用默认设置。
                 </p>
               ))}
             {invalidSettings && (
@@ -910,14 +910,14 @@ function App() {
                   {selectedRun.error && (
                     <p className="run-error">{selectedRun.error}</p>
                   )}
-                  {selectedRun.harnessName === "Codex" && (
+                  {isAuditedHarness(selectedRun.harnessName) && (
                     <>
                       <section aria-label="上下文">
                         <h4>上下文</h4>
                         <p>
                           占用 / 会话有效窗口{" "}
                           {selectedRun.context
-                            ? `${tokenNumber.format(selectedRun.context.usedTokens)} / ${tokenNumber.format(selectedRun.context.effectiveWindowTokens)} tokens · ACP 上报`
+                            ? `${tokenNumber.format(selectedRun.context.usedTokens)} / ${selectedRun.context.effectiveWindowTokens === null ? "未知" : tokenNumber.format(selectedRun.context.effectiveWindowTokens)} tokens · ${selectedRun.context.source === "grok_acp_session_meta" ? "Grok 会话观测" : "ACP 上报"}`
                             : "未知"}
                         </p>
                         <p>
@@ -957,6 +957,11 @@ function App() {
                               }
                             </p>
                             <UsageNumbers values={selectedRun.usage} />
+                            {selectedRun.usage.cost && (
+                              <p>
+                                上报费用 USD {selectedRun.usage.cost.amount}
+                              </p>
+                            )}
                             {selectedRun.usage.inconsistent && (
                               <p>上报总量与分项存在差异，保留原值。</p>
                             )}
@@ -974,9 +979,9 @@ function App() {
                       </section>
                     </>
                   )}
-                  {(selectedRun.harnessName === "Codex" ||
+                  {(isAuditedHarness(selectedRun.harnessName) ||
                     detail.task.requestedSettings) && (
-                    <section aria-label="Codex 设置回执">
+                    <section aria-label="运行设置回执">
                       <p>
                         请求设置：
                         {detail.task.requestedSettings?.modelId ??
@@ -1077,9 +1082,11 @@ function App() {
                           <p key={entry.seq}>
                             上下文{" "}
                             {tokenNumber.format(entry.observation.usedTokens)} /{" "}
-                            {tokenNumber.format(
-                              entry.observation.effectiveWindowTokens,
-                            )}{" "}
+                            {entry.observation.effectiveWindowTokens === null
+                              ? "未知"
+                              : tokenNumber.format(
+                                  entry.observation.effectiveWindowTokens,
+                                )}{" "}
                             tokens · {date(entry.createdAt)}
                           </p>
                         ))}

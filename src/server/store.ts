@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import {
   LIMITS,
+  isAuditedHarness,
   type Task,
   type Run,
   type Approval,
@@ -30,7 +31,7 @@ const now = () => new Date().toISOString();
 
 function summarizeUsage(runs: Run[]): TaskDetail["usageSummary"] {
   const finished = runs.filter((run) => run.endedAt);
-  if (!finished.some((run) => run.harnessName === "Codex" || run.usage)) return;
+  if (!finished.some((run) => isAuditedHarness(run.harnessName) || run.usage)) return;
   const usage = finished.flatMap((run) =>
     run.usage?.scope === "primary_prompt" &&
     run.usage.basis === "token_breakdown_v1"
@@ -330,7 +331,7 @@ export class Store {
         return {
           ...run,
           context:
-            run.harnessName === "Codex"
+            isAuditedHarness(run.harnessName)
               ? this.latestContext(run.id)
               : undefined,
         };
