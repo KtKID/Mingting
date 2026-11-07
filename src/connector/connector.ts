@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
-import type { RequestPermissionResponse } from "@agentclientprotocol/sdk";
 import {
   LIMITS,
   isAuditedHarness,
@@ -11,6 +10,7 @@ import {
   type DeliveryEvent,
   type Claim,
   type ConnectorUpdate,
+  type Owner,
   type RunUsage,
 } from "../shared/protocol.js";
 import type {
@@ -196,72 +196,17 @@ export class TaskConnector {
   private async execute(claim: Claim) {
     const abort = new AbortController();
     this.runAbort = abort;
-    const owner = { ownerId: this.ownerId, claimId: claim.claimId };
-    let seq = 0,
-      queued = 0;
-    let reports = Promise.resolve();
-    let heartbeatBusy = false;
-    let cancelled = false;
-    /** 为回报分配本次运行的序号，依次等待平台确认，失败或积压超限时中止执行。 */
-    const enqueue = (update: ConnectorUpdate) => {
-      if (++queued > LIMITS.pendingReports) {
-        abort.abort(new Error("状态回传积压"));
-        return reports;
-      }
-      const current = ++seq;
-      reports = reports.then(async () => {
-        try {
-          const path = `/connector/runs/${claim.run.id}/report`;
-          const body = {
-            ...owner,
-            seq: current,
-            update,
-          };
-          try {
-            await post(this.base, path, body);
-          } catch (error) {
-            if (
-              update.type !== "settings" ||
-              error instanceof HttpError ||
-              abort.signal.aborted
-            )
-              throw error;
-            // 设置回执遇到非 HTTP 状态错误时，用原序号再发一次，服务端可识别已提交的回执。
-            await post(this.base, path, body);
-          }
-        } catch (e) {
-          abort.abort(new Error("状态回传失败，停止原执行"));
-          throw e;
-        } finally {
-          queued--;
-        }
-      });
-      void reports.catch(() => {});
-      return reports;
+    const run: RunContext = {
+      base: this.base,
+      runId: claim.run.id,
+      owner: { ownerId: this.ownerId, claimId: claim.claimId },
+      abort,
     };
-    /** 定期续期本次运行的领取租约，同时接收平台取消指令。 */
-    const heartbeat = async () => {
-      if (heartbeatBusy) return;
-      heartbeatBusy = true;
-      try {
-        const state = heartbeatResultSchema.parse(
-          await post(
-            this.base,
-            `/connector/runs/${claim.run.id}/heartbeat`,
-            owner,
-          ),
-        );
-        if (state.cancelRequested) {
-          cancelled = true;
-          abort.abort(new Error("运行已取消"));
-        }
-      } catch {
-        abort.abort(new Error("领取心跳失败，停止原执行"));
-      } finally {
-        heartbeatBusy = false;
-      }
-    };
-    const timer = setInterval(() => void heartbeat(), LIMITS.heartbeatMs);
+    const reports = createRunReports(run);
+    const heartbeat = createRunHeartbeat(run);
+
+    // 心跳独立于订阅连接，执行器等待审批时仍继续续租并接收取消指令。
+    const timer = setInterval(() => void heartbeat.send(), LIMITS.heartbeatMs);
     const runTimeout = setTimeout(
       () => abort.abort(new Error("执行超时")),
       LIMITS.runMs,
@@ -269,12 +214,12 @@ export class TaskConnector {
     /** 将连接器停止信号转为当前执行的取消信号。 */
     const stop = () => abort.abort(new Error("连接器停止"));
     this.stop.signal.addEventListener("abort", stop, { once: true });
-    let status: "succeeded" | "failed" | "cancelled" | "interrupted" = "failed",
+    let status: FinishedUpdate["status"] = "failed",
       error: string | null = null,
       stopReason: string | null = null;
     let usage: RunUsage | undefined;
     try {
-      await heartbeat();
+      await heartbeat.send();
       abort.signal.throwIfAborted();
       // 平台和执行器对工作区及演示模式达成一致后才启动本次 ACP 执行。
       if (
@@ -285,50 +230,14 @@ export class TaskConnector {
       const text = `${claim.task.title}\n\n${claim.task.description}`;
       const hooks: RunHooks = {
         // 会话、初始化信息、流式通知和上下文观测共用同一条回报队列。
-        session: (sessionId) => enqueue({ type: "session", sessionId }),
-        discovery: (discovery) => enqueue({ type: "discovery", discovery }),
+        session: (sessionId) => reports.enqueue({ type: "session", sessionId }),
+        discovery: (discovery) =>
+          reports.enqueue({ type: "discovery", discovery }),
         update: (notification) =>
-          enqueue({ type: "notification", notification }),
+          reports.enqueue({ type: "notification", notification }),
         context: (sessionId, observation) =>
-          enqueue({ type: "context", sessionId, observation }),
-        /** 先等已排队回报提交，再登记审批并轮询平台裁决，将原始选项交回 ACP。 */
-        permission: async (
-          requestId,
-          request,
-          signal,
-        ): Promise<RequestPermissionResponse> => {
-          try {
-            await reports;
-            const created = approvalCreatedSchema.parse(
-              await post(
-                this.base,
-                `/connector/runs/${claim.run.id}/permissions`,
-                { ...owner, requestId, request },
-                abort.signal,
-              ),
-            );
-            while (!signal.aborted && !abort.signal.aborted) {
-              const result = permissionResultSchema.parse(
-                await post(
-                  this.base,
-                  `/connector/runs/${claim.run.id}/permissions/${created.approvalId}/result`,
-                  owner,
-                  abort.signal,
-                ),
-              );
-              if (result.status === "resolved") return result.response!;
-              await delay(LIMITS.approvalPollMs, undefined, {
-                signal: AbortSignal.any([signal, abort.signal]),
-              });
-            }
-            return { outcome: { outcome: "cancelled" } };
-          } catch (e) {
-            if (signal.aborted || abort.signal.aborted)
-              return { outcome: { outcome: "cancelled" } };
-            abort.abort(new Error("审批回传失败"));
-            throw e;
-          }
-        },
+          reports.enqueue({ type: "context", sessionId, observation }),
+        permission: createPermissionHandler(run, reports.waitForPending),
       };
       if (isAuditedHarness(this.harnessName) && this.adapter.executeTask) {
         const result = await this.adapter.executeTask(
@@ -338,15 +247,16 @@ export class TaskConnector {
           claim.task.requestedSettings,
           // 适配器等设置回执提交后才发送任务正文。
           (sessionId, receipt) =>
-            enqueue({ type: "settings", sessionId, receipt }),
+            reports.enqueue({ type: "settings", sessionId, receipt }),
         );
         ({ stopReason, usage } = result);
         if (result.error) throw new Error(result.error);
-        if (abort.signal.aborted && !cancelled) abort.signal.throwIfAborted();
+        if (abort.signal.aborted && !heartbeat.cancelled)
+          abort.signal.throwIfAborted();
       } else {
         if (claim.task.requestedSettings) {
           const reason = "当前执行器无法确认任务设置";
-          await enqueue({
+          await reports.enqueue({
             type: "settings",
             sessionId: null,
             receipt: {
@@ -362,7 +272,8 @@ export class TaskConnector {
         }
         stopReason = await this.adapter.execute(text, abort.signal, hooks);
       }
-      await reports;
+      // 确认过程回报后再按执行器的停止原因判定终态。
+      await reports.waitForPending();
       status =
         stopReason === "end_turn"
           ? "succeeded"
@@ -371,7 +282,7 @@ export class TaskConnector {
             : "failed";
       if (status === "failed") error = "ACP 回合未正常结束：" + stopReason;
     } catch (e) {
-      status = cancelled
+      status = heartbeat.cancelled
         ? "cancelled"
         : this.stop.signal.aborted
           ? "interrupted"
@@ -381,15 +292,13 @@ export class TaskConnector {
       clearInterval(timer);
       clearTimeout(runTimeout);
       this.stop.signal.removeEventListener("abort", stop);
-      await reports.catch(() => {});
-      // 尽力用下一个序号提交终态。平台未收到终态时，按租约到期处理。
-      try {
-        await post(this.base, `/connector/runs/${claim.run.id}/report`, {
-          ...owner,
-          seq: ++seq,
-          update: { type: "finished", status, error, stopReason, usage },
-        });
-      } catch {}
+      await reports.finish({
+        type: "finished",
+        status,
+        error,
+        stopReason,
+        usage,
+      });
       this.runAbort = undefined;
     }
   }
@@ -402,4 +311,137 @@ export class TaskConnector {
     await this.pumping;
     await this.probe;
   }
+}
+
+type RunContext = {
+  base: string;
+  runId: string;
+  owner: Owner;
+  abort: AbortController;
+};
+
+type FinishedUpdate = Extract<ConnectorUpdate, { type: "finished" }>;
+
+/** 为单次运行分配回报序号，逐条等待平台确认。 */
+function createRunReports({ base, runId, owner, abort }: RunContext) {
+  const path = `/connector/runs/${runId}/report`;
+  let seq = 0;
+  let queued = 0;
+  let pending = Promise.resolve();
+
+  function enqueue(update: ConnectorUpdate) {
+    if (++queued > LIMITS.pendingReports) {
+      abort.abort(new Error("状态回传积压"));
+      return pending;
+    }
+    const current = ++seq;
+    pending = pending.then(async () => {
+      try {
+        const body = { ...owner, seq: current, update };
+        try {
+          await post(base, path, body);
+        } catch (error) {
+          if (
+            update.type !== "settings" ||
+            error instanceof HttpError ||
+            abort.signal.aborted
+          )
+            throw error;
+          // 设置回执的传输确认可能丢失，沿用原序号重发一次以便服务端去重。
+          await post(base, path, body);
+        }
+      } catch (error) {
+        abort.abort(new Error("状态回传失败，停止原执行"));
+        throw error;
+      } finally {
+        queued--;
+      }
+    });
+    // 流式通知可直接入队，显式等待队列的调用方仍会收到原错误。
+    void pending.catch(() => {});
+    return pending;
+  }
+
+  function waitForPending() {
+    return pending;
+  }
+
+  async function finish(update: FinishedUpdate) {
+    // 即使过程回报失败，也尽力提交终态。平台未收到终态时按租约到期处理。
+    await waitForPending().catch(() => {});
+    try {
+      await post(base, path, { ...owner, seq: ++seq, update });
+    } catch {}
+  }
+
+  return { enqueue, waitForPending, finish };
+}
+
+/** 处理一次执行器发来的审批请求，返回平台裁决的原始选项。 */
+function createPermissionHandler(
+  { base, runId, owner, abort }: RunContext,
+  waitForReports: () => Promise<void>,
+): RunHooks["permission"] {
+  const path = `/connector/runs/${runId}/permissions`;
+  return async (requestId, request, signal) => {
+    try {
+      // 登记审批前，先等触发审批时已排队的会话和过程回报提交。
+      await waitForReports();
+      const created = approvalCreatedSchema.parse(
+        await post(base, path, { ...owner, requestId, request }, abort.signal),
+      );
+      while (!signal.aborted && !abort.signal.aborted) {
+        const result = permissionResultSchema.parse(
+          await post(
+            base,
+            `${path}/${created.approvalId}/result`,
+            owner,
+            abort.signal,
+          ),
+        );
+        if (result.status === "resolved") return result.response;
+        await delay(LIMITS.approvalPollMs, undefined, {
+          signal: AbortSignal.any([signal, abort.signal]),
+        });
+      }
+      return { outcome: { outcome: "cancelled" } };
+    } catch (error) {
+      if (signal.aborted || abort.signal.aborted)
+        return { outcome: { outcome: "cancelled" } };
+      abort.abort(new Error("审批回传失败"));
+      throw error;
+    }
+  };
+}
+
+/** 续期领取租约，按平台请求取消本次运行。 */
+function createRunHeartbeat({ base, runId, owner, abort }: RunContext) {
+  let busy = false;
+  let cancelled = false;
+
+  async function send() {
+    // 请求可能跨过多个定时周期，同一时间只允许一个心跳在途。
+    if (busy) return;
+    busy = true;
+    try {
+      const state = heartbeatResultSchema.parse(
+        await post(base, `/connector/runs/${runId}/heartbeat`, owner),
+      );
+      if (state.cancelRequested) {
+        cancelled = true;
+        abort.abort(new Error("运行已取消"));
+      }
+    } catch {
+      abort.abort(new Error("领取心跳失败，停止原执行"));
+    } finally {
+      busy = false;
+    }
+  }
+
+  return {
+    send,
+    get cancelled() {
+      return cancelled;
+    },
+  };
 }
