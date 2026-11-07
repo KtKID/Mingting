@@ -54,7 +54,6 @@ export const taskResultEventSchema = z.strictObject({
   endedAt: z.iso.datetime(),
 });
 export const wakeupResultHeader = "x-mingting-wakeup-result";
-export const wakeupResultTextLimit = 1_000;
 
 export const dshPublishSchema = z.strictObject({
   ...dshTaskFields,

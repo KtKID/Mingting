@@ -1,14 +1,28 @@
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { createPlatform } from "../src/server/transport/http.js";
-import { dshPublishSchema } from "../src/shared/dsh-wakeup.js";
+import {
+  dshCompletionSchema,
+  dshPublishSchema,
+  wakeupResultHeader,
+} from "../src/shared/dsh-wakeup.js";
 import { browserSnapshotSchema } from "../src/shared/protocol.js";
+
+async function readSseFrame(reader: ReadableStreamDefaultReader<string>) {
+  let buffer = "";
+  while (!buffer.includes("\n\n")) {
+    const part = await reader.read();
+    assert.ok(!part.done);
+    buffer += part.value;
+  }
+  return buffer.slice(0, buffer.indexOf("\n\n"));
+}
 
 test("the DSH contract keeps accepting existing bare UUID session IDs", () => {
   const sessionId = randomUUID();
@@ -23,6 +37,26 @@ test("the DSH contract keeps accepting existing bare UUID session IDs", () => {
   assert.equal(input.sessionId, sessionId);
 });
 
+test("platform rejects an invalid wakeup result text limit at startup", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "mingting-config-"));
+  const configPath = join(dir, "config.yaml");
+  try {
+    for (const value of ["0", "-5", "1.5", '"5000"']) {
+      await writeFile(
+        configPath,
+        `tasks:\n  wakeupResultTextLimit: ${value}\n`,
+      );
+      assert.throws(
+        () =>
+          createPlatform({ dbPath: ":memory:", workspace: dir, configPath }),
+        /无法读取明庭配置.*config\.yaml[\s\S]*wakeupResultTextLimit/,
+      );
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test(
   "authenticated DSH publishes once, keeps webpage approvals, and replays the exact completion until the correct session acknowledges it",
   { timeout: 10_000 },
@@ -30,11 +64,14 @@ test(
     const dir = await mkdtemp(join(tmpdir(), "mingting-dsh-"));
     const token = randomBytes(32).toString("hex");
     const hostId = randomUUID();
+    const configPath = join(dir, "config.yaml");
+    await writeFile(configPath, "tasks:\n  wakeupResultTextLimit: 3\n");
     const platform = createPlatform({
       dbPath: join(dir, "tasks.sqlite"),
       workspace: dir,
       mode: "fake",
       dshWakeupHost: { hostId, token },
+      configPath,
     });
     const server = createServer(platform.app);
     const signal = AbortSignal.timeout(7_500);
@@ -58,10 +95,12 @@ test(
           body: JSON.stringify(data),
           signal,
         });
-      const connect = async () => {
+      const connect = async (includeResult = false) => {
         const stream = () =>
           fetch(base + "/wakeup-host/events", {
-            headers,
+            headers: includeResult
+              ? { ...headers, [wakeupResultHeader]: "1" }
+              : headers,
             signal,
           });
         let response = await stream();
@@ -168,6 +207,16 @@ test(
       );
       assert.equal(decision.status, 200);
       platform.service.report(run.id, owner, 2, {
+        type: "notification",
+        notification: {
+          sessionId: "executor",
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "完整结果" },
+          },
+        },
+      });
+      platform.service.report(run.id, owner, 3, {
         type: "finished",
         status: "succeeded",
         stopReason: "end_turn",
@@ -188,6 +237,18 @@ test(
       await first.close();
       const second = await connect();
       assert.deepEqual(await second.read("task.completed"), completed);
+      await second.close();
+      const withResult = await connect(true);
+      assert.deepEqual(
+        dshCompletionSchema.parse(await withResult.read("task.completed"))
+          .result,
+        {
+          status: "succeeded",
+          output: "完整结",
+          error: null,
+          truncated: true,
+        },
+      );
       assert.equal(
         (
           await post("ack", {
@@ -295,7 +356,7 @@ test(
       assert.equal((await publish(hostHeaders)).isError, true);
       assert.equal(platform.store.list().length, 0);
       const stream = await fetch(base + "/wakeup-host/events", {
-        headers: { ...hostHeaders, "x-mingting-wakeup-result": "1" },
+        headers: { ...hostHeaders, [wakeupResultHeader]: "1" },
         signal,
       });
       assert.equal(stream.status, 200);
@@ -333,13 +394,15 @@ test(
         type: "session",
         sessionId: "executor",
       });
+      const preview = "实".repeat(5000);
+      const output = preview + "完整结果的尾部";
       platform.service.report(run.id, owner, 2, {
         type: "notification",
         notification: {
           sessionId: "executor",
           update: {
             sessionUpdate: "agent_message_chunk",
-            content: { type: "text", text: "实际结果" },
+            content: { type: "text", text: output },
           },
         },
       });
@@ -349,9 +412,23 @@ test(
         stopReason: "end_turn",
         error: null,
       });
-      const hostFrame = (await hostReader.read()).value ?? "";
-      assert.match(hostFrame, new RegExp(target));
-      assert.match(hostFrame, /实际结果/);
+      const readCompletion = async () => {
+        const frame = await readSseFrame(hostReader);
+        const payload = /^data: (.+)$/m.exec(frame)?.[1];
+        assert.ok(payload);
+        return {
+          frame,
+          completion: dshCompletionSchema.parse(JSON.parse(payload)),
+        };
+      };
+      const { completion } = await readCompletion();
+      assert.equal(completion.sessionId, target);
+      assert.deepEqual(completion.result, {
+        status: "succeeded",
+        output: preview,
+        error: null,
+        truncated: true,
+      });
       const eventId = `task.completed:${run.id}`;
       const ack = await fetch(base + "/wakeup-host/ack", {
         method: "POST",
@@ -378,7 +455,7 @@ test(
       const browserReader = browser.body
         .pipeThrough(new TextDecoderStream())
         .getReader();
-      const snapshotFrame = (await browserReader.read()).value ?? "";
+      const snapshotFrame = await readSseFrame(browserReader);
       await browserReader.cancel();
       const payload = /^data: (.+)$/m.exec(snapshotFrame)?.[1];
       assert.ok(payload);
@@ -387,6 +464,10 @@ test(
         target: { sessionId: target, originTurn: 3 },
         events: [{ id: eventId, type: "task.completed", status: "delivered" }],
       });
+      assert.equal(
+        snapshot.detail?.runs.find((item) => item.id === run.id)?.output,
+        output,
+      );
 
       const subscribe = (subscriptionToken: string, view = "&view=result") =>
         fetch(base + "/subscriber/events?taskId=" + receipt.taskId + view, {
@@ -404,7 +485,7 @@ test(
           .pipeThrough(new TextDecoderStream())
           .getReader();
         let frames = "";
-        while (!frames.includes("实际结果")) {
+        while (!frames.includes(output)) {
           const next = await reader.read();
           assert.ok(!next.done);
           frames += next.value;
@@ -414,6 +495,44 @@ test(
         assert.match(frames, /"status":"succeeded"/);
         await reader.cancel();
       }
+
+      const { structuredContent: escapedReceipt } = await publish(
+        hostHeaders,
+        args.description,
+        { ...context, publishRequestId: "escaped-output" },
+      );
+      const escapedRun = platform.service.claim(
+        escapedReceipt.taskId,
+        owner,
+      ).run;
+      platform.service.report(escapedRun.id, owner, 1, {
+        type: "session",
+        sessionId: "executor",
+      });
+      const escapedOutput = "\u001b".repeat(5000);
+      platform.service.report(escapedRun.id, owner, 2, {
+        type: "notification",
+        notification: {
+          sessionId: "executor",
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: escapedOutput },
+          },
+        },
+      });
+      platform.service.report(escapedRun.id, owner, 3, {
+        type: "finished",
+        status: "failed",
+        stopReason: null,
+        error: "\u001b".repeat(2000),
+      });
+      const escaped = await readCompletion();
+      assert.equal(escaped.completion.runId, escapedRun.id);
+      assert.ok(escaped.frame.length + 2 <= 16_384);
+      assert.equal(escaped.completion.result?.truncated, true);
+      assert.ok(escaped.completion.result?.output.length);
+      assert.ok(escaped.completion.result?.error?.length);
+      assert.equal(platform.store.run(escapedRun.id)?.output, escapedOutput);
       await hostReader.cancel();
     } finally {
       stop.abort();

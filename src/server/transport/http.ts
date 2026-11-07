@@ -22,6 +22,7 @@ import {
 import { Store } from "../storage/store.js";
 import { TaskService, AppError } from "../tasks/service.js";
 import { readApprovalHistory } from "../storage/approval-history.js";
+import { loadConfig } from "../config.js";
 import type { WakeupDelivery } from "../wakeup/task-wakeup.js";
 import { dshWakeupRouter, type DshWakeupHost } from "./dsh-wakeup.js";
 import { wakeupAcknowledgementSchema } from "../../shared/task-wakeup.js";
@@ -44,8 +45,10 @@ type Config = {
   mode?: "fake" | "codex";
   wakeupDelivery?: WakeupDelivery;
   dshWakeupHost?: DshWakeupHost;
+  configPath?: string;
 };
 export function createPlatform(config: Config) {
+  const { tasks } = loadConfig(config.configPath);
   const store = new Store(config.dbPath);
   const service = new TaskService(
     store,
@@ -102,7 +105,11 @@ export function createPlatform(config: Config) {
   });
   app.use(express.json({ limit: LIMITS.httpBytes }));
   const dshHost = config.dshWakeupHost
-    ? dshWakeupRouter(service, config.dshWakeupHost)
+    ? dshWakeupRouter(
+        service,
+        config.dshWakeupHost,
+        tasks.wakeupResultTextLimit,
+      )
     : undefined;
   if (dshHost) app.use("/wakeup-host", dshHost.router);
   app.get("/api/bootstrap", (req, res) => {

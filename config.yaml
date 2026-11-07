@@ -1,0 +1,3 @@
+tasks:
+  # Maximum UTF-16 code units per output or error in a wakeup notification.
+  wakeupResultTextLimit: 5000

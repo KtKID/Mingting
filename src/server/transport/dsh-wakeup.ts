@@ -8,10 +8,38 @@ import {
   dshPublishSchema,
   dshPublisherContextSchema,
   wakeupResultHeader,
-  wakeupResultTextLimit,
 } from "../../shared/dsh-wakeup.js";
-import { LIMITS } from "../../shared/protocol.js";
+import { LIMITS, type Run } from "../../shared/protocol.js";
 import { AppError, type TaskService } from "../tasks/service.js";
+
+// KMH's SSE reader accepts at most this many UTF-16 code units per frame.
+const maxHostFrameLength = 16_384;
+
+function completionFrame(
+  event: Omit<z.input<typeof dshCompletionSchema>, "result">,
+  run: Run | undefined,
+  textLimit: number,
+) {
+  for (let limit = textLimit; ; limit = Math.floor(limit / 2)) {
+    const completion = dshCompletionSchema.parse({
+      ...event,
+      ...(run?.endedAt
+        ? {
+            result: {
+              status: run.status,
+              output: run.output.slice(0, limit),
+              error: run.error?.slice(0, limit) ?? null,
+              truncated:
+                run.output.length > limit || (run.error?.length ?? 0) > limit,
+            },
+          }
+        : {}),
+    });
+    const frame = `event: task.completed\ndata: ${JSON.stringify(completion)}\n\n`;
+    // JSON escaping can expand the result past the peer's frame limit.
+    if (frame.length <= maxHostFrameLength) return frame;
+  }
+}
 
 const hostSchema = z.strictObject({
   hostId: z.uuid(),
@@ -31,7 +59,11 @@ export function configuredDshWakeupHost(env: NodeJS.ProcessEnv = process.env) {
   });
 }
 
-export function dshWakeupRouter(service: TaskService, config: DshWakeupHost) {
+export function dshWakeupRouter(
+  service: TaskService,
+  config: DshWakeupHost,
+  resultTextLimit: number,
+) {
   const router = Router();
   const { hostId, token } = hostSchema.parse(config);
   const expected = createHash("sha256").update(`Bearer ${token}`).digest();
@@ -95,31 +127,20 @@ export function dshWakeupRouter(service: TaskService, config: DshWakeupHost) {
         req.headers[wakeupResultHeader] === "1"
           ? service.store.run(event.runId)
           : undefined;
-      const frame = dshCompletionSchema.parse({
-        eventId: event.id,
-        taskId: event.taskId,
-        runId: event.runId,
-        sessionId: event.target.sessionId,
-        originTurn: event.target.originTurn,
-        completedAt: event.createdAt,
-        ...(run?.endedAt
-          ? {
-              result: {
-                status: run.status,
-                output: run.output.slice(0, wakeupResultTextLimit),
-                error: run.error?.slice(0, wakeupResultTextLimit) ?? null,
-                truncated:
-                  run.output.length > wakeupResultTextLimit ||
-                  (run.error?.length ?? 0) > wakeupResultTextLimit,
-              },
-            }
-          : {}),
-      });
+      const frame = completionFrame(
+        {
+          eventId: event.id,
+          taskId: event.taskId,
+          runId: event.runId,
+          sessionId: event.target.sessionId,
+          originTurn: event.target.originTurn,
+          completedAt: event.createdAt,
+        },
+        run,
+        resultTextLimit,
+      );
       lastSent = event.id;
-      if (
-        !res.write(`event: task.completed\ndata: ${JSON.stringify(frame)}\n\n`)
-      )
-        stop();
+      if (!res.write(frame)) stop();
     };
     const heartbeat = setInterval(() => {
       if (!res.write(": heartbeat\n\n")) stop();
