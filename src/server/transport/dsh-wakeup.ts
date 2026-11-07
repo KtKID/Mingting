@@ -16,6 +16,7 @@ import { taskExchange, taskMessage } from "./task-communication.js";
 // KMH's SSE reader accepts at most this many UTF-16 code units per frame.
 const maxHostFrameLength = 16_384;
 
+/** 生成完成事件帧，逐步缩短结果文本以满足宿主的 SSE 帧上限。 */
 function completionFrame(
   event: Omit<z.input<typeof dshCompletionSchema>, "result">,
   run: Run | undefined,
@@ -48,6 +49,7 @@ const hostSchema = z.strictObject({
 });
 export type DshWakeupHost = z.infer<typeof hostSchema>;
 
+/** 从环境变量和令牌文件读取并校验 DSH 唤醒宿主配置。 */
 export function configuredDshWakeupHost(env: NodeJS.ProcessEnv = process.env) {
   if (!env.MINGTING_DSH_HOST_ID && !env.MINGTING_DSH_TOKEN_FILE)
     return undefined;
@@ -60,6 +62,7 @@ export function configuredDshWakeupHost(env: NodeJS.ProcessEnv = process.env) {
   });
 }
 
+/** 创建 DSH 宿主专用的发单、事件订阅及确认路由。 */
 export function dshWakeupRouter(
   service: TaskService,
   config: DshWakeupHost,
@@ -69,6 +72,7 @@ export function dshWakeupRouter(
   const { hostId, token } = hostSchema.parse(config);
   const expected = createHash("sha256").update(`Bearer ${token}`).digest();
   let connected = false;
+  /** 拒绝带浏览器来源标记的请求，并以恒定时间比较宿主令牌摘要。 */
   const requireHost = (req: Request) => {
     if (
       req.headers.origin !== undefined ||
@@ -81,6 +85,7 @@ export function dshWakeupRouter(
     if (!timingSafeEqual(expected, actual))
       throw new AppError(401, "DSH 宿主认证失败");
   };
+  /** 校验宿主和发单上下文，并从发单请求 ID 派生结果订阅令牌。 */
   const publisher = (req: Request, raw: unknown) => {
     requireHost(req);
     const parsed = dshPublisherContextSchema.safeParse(raw);
@@ -96,11 +101,13 @@ export function dshWakeupRouter(
     };
   };
   router.use((req, _res, next) => {
+    // 对宿主路由统一执行认证，再进入具体处理器。
     requireHost(req);
     next();
   });
 
   router.post("/publish", (req, res) => {
+    // 处理旧版 DSH 发单请求，记录回执并区分首次发布和重复请求。
     const result = service.publishFromDsh(
       hostId,
       dshPublishSchema.parse(req.body),
@@ -123,6 +130,7 @@ export function dshWakeupRouter(
   });
 
   router.get("/events", (req, res) => {
+    // 建立宿主独占的 SSE 连接，推送待确认事件并维持心跳。
     if (connected) throw new AppError(409, "该宿主已连接完成事件流");
     connected = true;
     let lastSent: string | undefined;
@@ -132,7 +140,9 @@ export function dshWakeupRouter(
       "X-Accel-Buffering": "no",
     });
     res.setTimeout(0);
+    /** 结束宿主的 SSE 响应。 */
     const stop = () => res.end();
+    /** 按宿主版本构造完成事件，避免在同一连接中重复发送当前事件。 */
     const sendEvent = () => {
       if (res.writableEnded || res.destroyed) return;
       const event = service.store.pendingDshWakeup(hostId);
@@ -168,6 +178,7 @@ export function dshWakeupRouter(
       );
       if (!res.write(frame)) stop();
     };
+    /** 尝试发送待确认事件，构造或发送失败时关闭连接。 */
     const send = () => {
       try {
         sendEvent();
@@ -176,11 +187,13 @@ export function dshWakeupRouter(
       }
     };
     const heartbeat = setInterval(() => {
+      // 定期发送心跳，输出出现背压时关闭连接。
       if (!res.write(": heartbeat\n\n")) stop();
     }, LIMITS.subscriptionHeartbeatMs);
     service.events.on("changed", send);
     service.events.once("close", stop);
     res.once("close", () => {
+      // 释放宿主连接标记、心跳定时器和服务事件监听器。
       connected = false;
       clearInterval(heartbeat);
       service.events.off("changed", send);
@@ -191,6 +204,7 @@ export function dshWakeupRouter(
   });
 
   router.post("/ack", (req, res) => {
+    // 校验宿主回执，并按会话归属关联任务通信记录。
     const ack = dshAckSchema.parse(req.body);
     const event = service.store.dshWakeup(ack.eventId, hostId);
     const scope =
@@ -198,8 +212,14 @@ export function dshWakeupRouter(
         ? service.store.runMessageScope(event.runId)
         : undefined;
     res.json(
-      taskExchange(service.store, scope, "publisher", "wakeup.ack", ack, () =>
-        service.acknowledgeDshWakeup(hostId, ack),
+      taskExchange(
+        service.store,
+        scope,
+        "publisher",
+        "wakeup.ack",
+        ack,
+        /* 将确认结果写回对应宿主的完成事件。 */ () =>
+          service.acknowledgeDshWakeup(hostId, ack),
       ),
     );
   });

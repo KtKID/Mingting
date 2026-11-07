@@ -27,6 +27,7 @@ const modelWindows = z.object({
 });
 
 export const zcodeTelemetry: AcpTelemetry = {
+  /** 将 ZCode 原生会话用量映射到平台字段，标记模型错误和计数矛盾。 */
   usage(result, modelId, sessionId, adapterVersion, protocolVersion) {
     const meta = rpcRecord.safeParse(
       rpcRecord.safeParse(result).data?._meta,
@@ -64,12 +65,14 @@ export const zcodeTelemetry: AcpTelemetry = {
     if (partition !== undefined && partition < 0) usage.inconsistent = true;
     return { usage, evidence: native ?? null };
   },
+  /** 从 ZCode 原生模型目录读取当前模型的上下文窗口及来源。 */
   modelWindow(modelId, session) {
     if (!modelId) return null;
     const window = modelWindows
       .safeParse(session)
-      .data?.models.availableModels.find((item) => item.modelId === modelId)
-      ?._meta?.contextWindow;
+      .data?.models.availableModels.find(
+        /* 定位会话实际选中的模型。 */ (item) => item.modelId === modelId,
+      )?._meta?.contextWindow;
     return window
       ? {
           tokens: window,

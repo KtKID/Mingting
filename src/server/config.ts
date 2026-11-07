@@ -8,6 +8,7 @@ const configSchema = z.strictObject({
   }),
 });
 
+/** 读取并校验 YAML 配置，解析失败时在错误中带上文件路径。 */
 export function loadConfig(
   path: string | URL = new URL("../../config.yaml", import.meta.url),
 ) {

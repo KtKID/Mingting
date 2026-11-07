@@ -50,6 +50,7 @@ import {
   type DshWakeupTarget,
 } from "../../shared/task-wakeup.js";
 export class AppError extends Error {
+  /** 创建携带 HTTP 状态码的业务错误，供传输层统一返回。 */
   constructor(
     public status: number,
     message: string,
@@ -57,6 +58,7 @@ export class AppError extends Error {
     super(message);
   }
 }
+/** 生成任务状态与事件使用的 UTC 时间戳。 */
 const now = () => new Date().toISOString();
 type HostPublisher = {
   hostId: string;
@@ -74,6 +76,7 @@ export class TaskService {
       capabilities?: CapabilitySnapshot;
     }
   >();
+  /** 登记执行器连接，校验身份绑定并更新当前连接代次。 */
   registerHarness(identity: HarnessIdentity, generation?: string) {
     const current = this.subscriptions.get(identity.ownerId);
     if (
@@ -92,6 +95,7 @@ export class TaskService {
     this.events.emit("changed");
     let closed = false;
     return () => {
+      // 幂等注销当前连接，只清理属于该代次的能力快照。
       if (closed) return;
       closed = true;
       if (--entry.connections === 0)
@@ -103,6 +107,7 @@ export class TaskService {
       this.events.emit("changed");
     };
   }
+  /** 只接收当前受审计连接代次的能力上报，并通知订阅者。 */
   reportCapabilities(report: CapabilityReport) {
     const entry = this.subscriptions.get(report.ownerId);
     if (
@@ -114,17 +119,21 @@ export class TaskService {
     entry.capabilities = report.capabilities;
     this.events.emit("changed");
   }
+  /** 列出在线执行器及已收到的能力快照。 */
   harnesses(): HarnessSubscription[] {
-    return [...this.subscriptions.values()].map((s) => ({
-      ...s.identity,
-      ...(s.capabilities ? { capabilities: s.capabilities } : {}),
-    }));
+    return [...this.subscriptions.values()].map(
+      /* 展开连接身份，存在能力快照时附到结果。 */ (s) => ({
+        ...s.identity,
+        ...(s.capabilities ? { capabilities: s.capabilities } : {}),
+      }),
+    );
   }
   private resumeNotBefore = 0;
   private closed = false;
   private timer: NodeJS.Timeout;
   readonly events = new EventEmitter();
   readonly wakeups?: WakeupDispatcher;
+  /** 恢复数据库状态，设置重启隔离期，并挂接唤醒调度与超时清理。 */
   constructor(
     public store: Store,
     private workspace: string,
@@ -142,22 +151,29 @@ export class TaskService {
       (LIMITS.subscribers + LIMITS.browserSubscribers) * 2 + 4,
     );
     store.onChange = () => {
+      // 存储变更后通知订阅者，并触发待处理唤醒。
       this.events.emit("changed");
       this.wakeups?.kick();
     };
-    this.timer = setInterval(() => this.sweep(), LIMITS.sweepMs);
+    this.timer = setInterval(
+      /* 定时检查认领租约、运行和审批时限。 */ () => this.sweep(),
+      LIMITS.sweepMs,
+    );
     this.timer.unref();
     this.wakeups?.kick();
   }
+  /** 向在线连接器广播任务可认领事件。 */
   private available(event: DeliveryEvent) {
     this.events.emit("available", event);
   }
+  /** 处理旧版 DSH 发单，按宿主请求 ID 去重，并广播新任务。 */
   publishFromDsh(hostId: string, input: DshPublish, connected: boolean) {
     const { publishRequestId, sessionId, originTurn, ...taskInput } = input;
     const fingerprint = createHash("sha256")
       .update(JSON.stringify(input))
       .digest("hex");
     const result = this.store.transaction(() => {
+      // 在事务内复用相同发单请求，或原子写入新任务、原会话绑定和投递。
       const existing = this.store.dshPublication(hostId, publishRequestId);
       if (existing) {
         if (existing.fingerprint !== fingerprint)
@@ -204,8 +220,10 @@ export class TaskService {
       created: result.event !== undefined,
     };
   }
+  /** 接收 DSH 宿主对完成唤醒的处理结果。 */
   acknowledgeDshWakeup(hostId: string, ack: DshAck) {
     this.store.transaction(() => {
+      // 校验事件归属并幂等保存确认，拒绝覆盖已有的不同结果。
       const event = this.store.dshWakeup(ack.eventId, hostId);
       if (!event || event.target.sessionId !== ack.sessionId)
         throw new AppError(404, "当前宿主和会话没有这条完成事件");
@@ -227,6 +245,7 @@ export class TaskService {
     });
     return { ok: true };
   }
+  /** 核对追加者是否与任务首轮的宿主和原发布会话匹配。 */
   isOriginalPublisher(taskId: string, publisher: HostPublisher) {
     const source = this.store.turn(taskId, 1)?.source;
     return (
@@ -234,6 +253,7 @@ export class TaskService {
       source.publisherSessionId === publisher.source.sessionId
     );
   }
+  /** 允许原发布会话在执行释放后追加一轮，并保留独立唤醒绑定。 */
   private append(
     command: z.infer<typeof appendTaskSchema>,
     publisher?: HostPublisher,
@@ -251,6 +271,7 @@ export class TaskService {
       .digest("hex");
     const requestId = `mcp:${source.publishRequestId}`;
     const result = this.store.transaction(() => {
+      // 原子校验发布者和幂等记录，创建新一轮并重新排队。
       const task = this.store.task(command.taskId);
       if (!task) throw new AppError(404, "任务不存在");
       const latest = this.store.turn(task.id);
@@ -283,7 +304,12 @@ export class TaskService {
         throw new AppError(503, "KMH 宿主尚未连接完成事件流");
       if (
         ["queued", "running", "awaiting_approval"].includes(task.status) ||
-        this.store.unfinished().some((run) => run.taskId === task.id)
+        this.store
+          .unfinished()
+          .some(
+            /* 检查该任务是否仍有尚未结束的运行。 */ (run) =>
+              run.taskId === task.id,
+          )
       )
         throw new AppError(409, "原执行尚未释放；请稍后追加");
       if (this.store.countActive() >= LIMITS.queue)
@@ -325,6 +351,7 @@ export class TaskService {
     if (result.event) this.available(result.event);
     return { taskId: result.taskId, taskTurn: result.taskTurn };
   }
+  /** 校验统一发单命令，并按动作创建任务或追加一轮。 */
   publishCommand(raw: unknown, publisher?: HostPublisher) {
     if (this.closed) throw new AppError(503, "服务正在停止");
     const command = taskCommandSchema.parse(raw);
@@ -332,6 +359,7 @@ export class TaskService {
     const { action: _action, ...fields } = command;
     return this.publish(fields, publisher);
   }
+  /** 校验发单和唤醒授权，生成结果回执与可用的审批订阅凭据。 */
   publish(raw: PublishTask, publisher?: HostPublisher) {
     if (this.closed) throw new AppError(503, "服务正在停止");
     const input = publishTaskSchema.parse(raw);
@@ -362,6 +390,7 @@ export class TaskService {
       .update(JSON.stringify([input, wakeupTarget]))
       .digest("hex");
     const result = this.store.transaction(() => {
+      // 原子保存任务、订阅和投递，并复用内容与凭据相同的宿主请求。
       if (publisher && requestId) {
         const existing = this.store.dshPublication(publisher.hostId, requestId);
         if (existing) {
@@ -416,6 +445,7 @@ export class TaskService {
         : {}),
     };
   }
+  /** 核对结果订阅凭据，并返回任务的当前状态。 */
   resultStatus(subscription: ApprovalSubscription) {
     if (
       !this.store.resultSubscriber(
@@ -428,6 +458,7 @@ export class TaskService {
     if (!task) throw new AppError(404, "任务不存在");
     return { taskId: task.id, taskStatus: task.status };
   }
+  /** 按运行顺序产出稳定 ID 的完成事件，供结果订阅重放。 */
   *resultEvents(taskId: string) {
     for (const run of this.store.finishedRuns(taskId))
       yield taskResultEventSchema.parse({
@@ -440,6 +471,7 @@ export class TaskService {
         endedAt: run.endedAt,
       });
   }
+  /** 读取已配置唤醒宿主的状态，缺省时报告未配置。 */
   wakeupStatus() {
     return (
       this.wakeups?.delivery.status() ?? {
@@ -449,6 +481,7 @@ export class TaskService {
       }
     );
   }
+  /** 校验审批订阅后返回任务的 Codex 唤醒目标和事件。 */
   taskWakeups(subscription: ApprovalSubscription) {
     this.requireSubscriber(subscription);
     return {
@@ -456,6 +489,7 @@ export class TaskService {
       events: this.store.taskWakeups(subscription.taskId),
     };
   }
+  /** 用原聊天中新开的回合确认已投递事件，并确保一轮只确认一个事件。 */
   acknowledgeWakeup(
     subscription: ApprovalSubscription,
     raw: WakeupAcknowledgement,
@@ -464,7 +498,10 @@ export class TaskService {
     const input = wakeupAcknowledgementSchema.parse(raw);
     const event = this.store
       .taskWakeups(subscription.taskId)
-      .find((item) => item.id === input.eventId);
+      .find(
+        /* 在订阅任务的事件里定位本次回执。 */ (item) =>
+          item.id === input.eventId,
+      );
     if (
       !event ||
       event.target.threadId !== input.threadId ||
@@ -478,7 +515,10 @@ export class TaskService {
     if (
       this.store
         .taskWakeups(subscription.taskId)
-        .some((item) => item.resumedTurnId === input.turnId)
+        .some(
+          /* 检查该聊天回合是否已用于确认其他唤醒事件。 */ (item) =>
+            item.resumedTurnId === input.turnId,
+        )
     )
       throw new AppError(409, "审批与完成需要分别恢复独立回合");
     this.store.saveWakeup({
@@ -489,9 +529,11 @@ export class TaskService {
     });
     return { ok: true };
   }
+  /** 将订阅令牌转换为数据库校验使用的 SHA-256 摘要。 */
   private tokenHash(token: string) {
     return createHash("sha256").update(token).digest("hex");
   }
+  /** 校验任务的审批订阅凭据，并返回该任务。 */
   requireSubscriber(subscription: ApprovalSubscription) {
     if (
       !this.store.approvalSubscriber(
@@ -505,6 +547,7 @@ export class TaskService {
       throw new AppError(403, "任务未选择订阅者审批");
     return task;
   }
+  /** 返回当前运行仍待处理的审批与任务状态。 */
   approvalSnapshot(subscription: ApprovalSubscription) {
     const task = this.requireSubscriber(subscription);
     return {
@@ -514,11 +557,15 @@ export class TaskService {
       approvals: task.currentRunId
         ? this.store
             .approvals(task.currentRunId)
-            .filter((approval) => approval.status === "pending")
+            .filter(
+              /* 只把待处理审批放入订阅快照。 */ (approval) =>
+                approval.status === "pending",
+            )
         : [],
     };
   }
   private approvalWaiters = 0;
+  /** 限量等待审批可处理或任务结束，支持超时与取消并清理监听器。 */
   async waitForApproval(
     subscription: ApprovalSubscription,
     waitMs: number,
@@ -530,17 +577,25 @@ export class TaskService {
       throw new AppError(429, "审批等待数量超限");
     this.approvalWaiters++;
     let timer: NodeJS.Timeout | undefined;
+    /** 在安装变更监听器前提供可安全清理的默认回调。 */
     let changed: () => void = () => {};
+    /** 在安装停止监听器前提供可安全清理的默认回调。 */
     let stop: () => void = () => {};
     try {
       await new Promise<void>((resolve, reject) => {
-        stop = () => reject(new AppError(503, "审批等待已结束"));
+        // 订阅变更、停止和取消信号，并安排本次等待的截止时间。
+        stop = /* 服务停止或请求取消时结束等待并返回错误。 */ () =>
+          reject(new AppError(503, "审批等待已结束"));
         changed = () => {
+          // 任务结束或出现订阅者尚未决定的审批时唤醒等待方。
           const snapshot = this.approvalSnapshot(subscription);
           if (
             snapshot.approvals.some(
-              (a) =>
-                !a.reviewerDecisions.some((d) => d.target === "subscriber"),
+              /* 检查是否有订阅者尚未决定的待处理审批。 */ (a) =>
+                !a.reviewerDecisions.some(
+                  /* 定位订阅者已经提交的决定。 */ (d) =>
+                    d.target === "subscriber",
+                ),
             ) ||
             !["queued", "running", "awaiting_approval"].includes(
               snapshot.taskStatus,
@@ -564,6 +619,7 @@ export class TaskService {
       signal?.removeEventListener("abort", stop);
     }
   }
+  /** 校验认领者当前的连接代次与任务指定的执行器。 */
   private claimIdentity(task: Task, ownerId: string, generation?: string) {
     const subscription = this.subscriptions.get(ownerId);
     if (generation && subscription?.generation !== generation)
@@ -576,6 +632,7 @@ export class TaskService {
       throw new AppError(403, "请以目标 harness 身份保持在线订阅后领取");
     return identity;
   }
+  /** 校验认领身份和投递归属，取得通信应关联的任务轮次。 */
   claimMessageScope(
     taskId: string,
     owner: Owner,
@@ -591,12 +648,14 @@ export class TaskService {
       ? { taskId, taskTurn: delivery.taskTurn }
       : undefined;
   }
+  /** 只有认领租约与请求者匹配时才提供运行的通信归属。 */
   runMessageScope(runId: string, owner: Owner) {
     const lease = this.store.lease(runId);
     return lease?.ownerId === owner.ownerId && lease.claimId === owner.claimId
       ? this.store.runMessageScope(runId)
       : undefined;
   }
+  /** 检查重启隔离期并认领排队任务，允许相同认领请求幂等重放。 */
   claim(
     taskId: string,
     owner: Owner,
@@ -608,6 +667,7 @@ export class TaskService {
       throw new AppError(409, "重启后等待旧连接器停止");
     this.sweep();
     return this.store.transaction(() => {
+      // 在事务内核对轮次投递、复用既有认领或创建运行和租约。
       const t = this.store.task(taskId);
       if (!t) throw new AppError(404, "任务不存在");
       const turn = this.store.turn(taskId);
@@ -679,6 +739,7 @@ export class TaskService {
       };
     });
   }
+  /** 读取仍有效且属于当前连接器认领的运行及租约。 */
   private owned(runId: string, owner: Owner) {
     const r = this.store.run(runId),
       lease = this.store.lease(runId);
@@ -695,6 +756,7 @@ export class TaskService {
       throw new AppError(410, "领取已失效，请停止原执行");
     return { run: r, lease };
   }
+  /** 为有效认领续租，并返回任务运行状态供连接器识别取消。 */
   heartbeat(runId: string, owner: Owner) {
     this.sweep();
     const { run, lease } = this.owned(runId, owner);
@@ -713,6 +775,7 @@ export class TaskService {
       mode: this.mode,
     };
   }
+  /** 按连续序号接收执行器回报，对已处理的上报返回幂等响应。 */
   report(runId: string, owner: Owner, seq: number, update: ConnectorUpdate) {
     const previous = this.store.lease(runId);
     if (
@@ -727,6 +790,7 @@ export class TaskService {
     if (seq !== lease.seq + 1) throw new AppError(409, "状态回传序号有缺口");
     const t = this.store.task(r.taskId)!;
     this.store.transaction(() => {
+      // 校验并落盘进度、设置、上下文或结束结果，同步推进租约序号。
       if (update.type === "session") {
         if (r.sessionId && r.sessionId !== update.sessionId)
           throw new AppError(409, "不能切换运行会话");
@@ -830,6 +894,7 @@ export class TaskService {
     });
     return { duplicate: false };
   }
+  /** 验证 ACP 审批请求，复用相同请求 ID，并限制单次运行的审批数量。 */
   permission(
     runId: string,
     owner: Owner,
@@ -844,7 +909,9 @@ export class TaskService {
     )
       throw new AppError(400, "ACP 审批结构无效或会话不匹配");
     const previous = this.store.approvals(runId);
-    const existing = previous.find((a) => a.requestId === requestId);
+    const existing = previous.find(
+      /* 按 ACP 请求 ID 查找已登记的审批。 */ (a) => a.requestId === requestId,
+    );
     if (existing) {
       if (JSON.stringify(existing.request) !== JSON.stringify(request))
         throw new AppError(409, "重复审批 ID 的内容不同");
@@ -852,8 +919,10 @@ export class TaskService {
     }
     if (
       previous.length >= LIMITS.approvalsPerRun ||
-      previous.filter((a) => a.status === "pending").length >=
-        LIMITS.pendingApprovals
+      previous.filter(
+        /* 只统计仍待处理的审批，检查并行积压上限。 */ (a) =>
+          a.status === "pending",
+      ).length >= LIMITS.pendingApprovals
     ) {
       this.cancel(r.taskId, "审批请求数量超限");
       throw new AppError(410, "审批请求数量超限");
@@ -867,7 +936,10 @@ export class TaskService {
       request,
       prompt: approvalPrompt(
         request,
-        r.tools.find((tool) => tool.id === request.toolCall.toolCallId),
+        r.tools.find(
+          /* 定位对应工具的进度记录，用于生成审批提示。 */ (tool) =>
+            tool.id === request.toolCall.toolCallId,
+        ),
       ),
       status: "pending" as const,
       optionId: null,
@@ -881,12 +953,14 @@ export class TaskService {
     const t = this.store.task(r.taskId)!;
     t.status = "awaiting_approval";
     this.store.transaction(() => {
+      // 在同一事务保存新审批和任务、运行的等待状态。
       this.store.saveApproval(a);
       this.store.saveRun(r);
       this.store.saveTask(t);
     });
     return { approvalId: a.id };
   }
+  /** 向持有有效认领的连接器返回审批状态或 ACP 决定。 */
   permissionResult(runId: string, owner: Owner, approvalId: string) {
     this.sweep();
     this.owned(runId, owner);
@@ -906,6 +980,7 @@ export class TaskService {
             response: { outcome: { outcome: "cancelled" as const } },
           };
   }
+  /** 校验审批仍可处理、运行租约有效且所选选项存在。 */
   private pendingApproval(id: string, decision: Decision) {
     const a = this.store.approval(id);
     const r = a ? this.store.run(a.runId) : undefined;
@@ -924,16 +999,23 @@ export class TaskService {
       this.store.task(a.taskId)?.currentRunId !== r.id
     )
       throw new AppError(409, "审批已失效或不属于当前执行");
-    if (!a.request.options.some((o) => o.optionId === decision.optionId))
+    if (
+      !a.request.options.some(
+        /* 确认决定引用了审批请求实际提供的选项。 */ (o) =>
+          o.optionId === decision.optionId,
+      )
+    )
       throw new AppError(409, "审批选项无效");
     return { approval: a, run: r };
   }
+  /** 保存网页用户的决定，并立即完成该审批。 */
   decide(id: string, decision: Decision) {
     this.sweep();
     const { approval } = this.pendingApproval(id, decision);
     approval.userDecision = { optionId: decision.optionId, decidedAt: now() };
     this.resolveApproval(approval, decision.optionId, "user");
   }
+  /** 保存订阅者的审批意见，并设置网页用户可优先处理的宽限期。 */
   decideSubscriber(decision: SubscriberDecision) {
     this.requireSubscriber(decision);
     this.sweep();
@@ -941,7 +1023,8 @@ export class TaskService {
     if (approval.taskId !== decision.taskId)
       throw new AppError(409, "审批不属于订阅任务");
     const existing = approval.reviewerDecisions.find(
-      (d) => d.target === "subscriber",
+      /* 找出订阅者已提交的意见，用于幂等和冲突检查。 */ (d) =>
+        d.target === "subscriber",
     );
     if (existing) {
       if (existing.optionId !== decision.optionId)
@@ -959,6 +1042,7 @@ export class TaskService {
     ).toISOString();
     this.store.saveApproval(approval);
   }
+  /** 记录最终审批决定，并按剩余审批更新任务与运行状态。 */
   private resolveApproval(
     a: Approval,
     optionId: string,
@@ -970,9 +1054,15 @@ export class TaskService {
     a.optionId = optionId;
     a.resolvedBy = source;
     this.store.transaction(() => {
+      // 原子写入审批结果、运行状态与任务状态。
       a.resolvedAt = now();
       this.store.saveApproval(a);
-      r.status = this.store.approvals(r.id).some((x) => x.status === "pending")
+      r.status = this.store
+        .approvals(r.id)
+        .some(
+          /* 检查同一次运行是否还有待处理审批。 */ (x) =>
+            x.status === "pending",
+        )
         ? "awaiting_approval"
         : "running";
       const t = this.store.task(r.taskId)!;
@@ -981,6 +1071,7 @@ export class TaskService {
       this.store.saveTask(t);
     });
   }
+  /** 将指定运行中仍待处理的审批标记为过期。 */
   private expire(runId: string) {
     for (const a of this.store.approvals(runId))
       if (a.status === "pending") {
@@ -988,12 +1079,14 @@ export class TaskService {
         this.store.saveApproval(a);
       }
   }
+  /** 取消可处理状态的任务，并使当前运行的待处理审批过期。 */
   cancel(id: string, reason = "用户取消") {
     const t = this.store.task(id);
     if (!t) throw new AppError(404, "任务不存在");
     if (!["queued", "running", "awaiting_approval"].includes(t.status))
       throw new AppError(409, "任务已结束");
     this.store.transaction(() => {
+      // 原子标记任务和当前运行为取消，保留执行器后续收尾。
       t.status = "cancelled";
       this.store.saveTask(t);
       const r = t.currentRunId ? this.store.run(t.currentRunId) : undefined;
@@ -1005,22 +1098,26 @@ export class TaskService {
       }
     });
   }
+  /** 在原执行释放并满足上限后，将当前任务轮次重新排队。 */
   retry(id: string) {
     if (this.closed) throw new AppError(503, "服务正在停止");
     const d = this.store.detail(id);
     if (!d) throw new AppError(404, "任务不存在");
     if (
       !["failed", "cancelled", "interrupted"].includes(d.task.status) ||
-      d.runs.some((r) => !r.endedAt)
+      d.runs.some(/* 检查是否仍有尚未收尾的旧运行。 */ (r) => !r.endedAt)
     )
       throw new AppError(409, "原执行尚未释放；请稍后重试");
     if (
-      d.runs.filter((run) => run.taskTurn === d.turns?.at(-1)?.taskTurn)
-        .length >= LIMITS.runsPerTask ||
+      d.runs.filter(
+        /* 只统计当前任务轮次的运行次数。 */ (run) =>
+          run.taskTurn === d.turns?.at(-1)?.taskTurn,
+      ).length >= LIMITS.runsPerTask ||
       this.store.countActive() >= LIMITS.queue
     )
       throw new AppError(429, "已达到队列或重试上限");
     const event = this.store.transaction(() => {
+      // 原子更新排队状态并创建新的投递事件。
       d.task.status = "queued";
       this.store.saveTask(d.task);
       return this.store.deliver(id);
@@ -1028,6 +1125,7 @@ export class TaskService {
     this.available(event);
     return { taskId: id };
   }
+  /** 处理失联租约、执行及审批超时，并在宽限期后采纳订阅者意见。 */
   sweep(time = Date.now()) {
     if (this.closed) return;
     for (const r of this.store.unfinished()) {
@@ -1042,7 +1140,7 @@ export class TaskService {
         this.store
           .approvals(r.id)
           .some(
-            (a) =>
+            /* 识别已到时限且尚未进入意见宽限期的待处理审批。 */ (a) =>
               a.status === "pending" &&
               a.fallbackAt === null &&
               time - Date.parse(a.createdAt) >= LIMITS.approvalMs,
@@ -1053,6 +1151,7 @@ export class TaskService {
       }
       if (reason)
         this.store.transaction(() => {
+          // 结算失联运行和过期审批，并同步任务状态。
           if (r.status !== "cancelled") r.status = "interrupted";
           r.error = reason;
           r.endedAt = now();
@@ -1071,13 +1170,15 @@ export class TaskService {
           )
             continue;
           const reviewer = approval.reviewerDecisions.find(
-            (decision) => decision.target === "subscriber",
+            /* 取出可在宽限期后采纳的订阅者决定。 */ (decision) =>
+              decision.target === "subscriber",
           );
           if (reviewer)
             this.resolveApproval(approval, reviewer.optionId, reviewer.target);
         }
     }
   }
+  /** 幂等停止定时清理和唤醒调度，收尾尚未结束的运行。 */
   async close() {
     if (this.closed) return;
     this.closed = true;
@@ -1085,6 +1186,7 @@ export class TaskService {
     this.events.emit("close");
     await this.wakeups?.close();
     this.store.transaction(() => {
+      // 原子中断未完成的运行与审批，并记录旧认领的隔离截止时间。
       const unfinished = this.store.unfinished();
       if (unfinished.length)
         this.store.setQuarantine(Date.now() + LIMITS.leaseMs);

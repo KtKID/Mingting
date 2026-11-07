@@ -70,6 +70,7 @@ const requestSchema = z.object({
   rejectedProjectTokenFingerprint: z.string().optional(),
 });
 
+/** 核对文件真实路径仍在项目内，再读取和解析 JSON。 */
 async function readProjectJson(path: string) {
   const root = await realpath(
     resolve(dirname(fileURLToPath(import.meta.url)), "../../../.."),
@@ -86,6 +87,7 @@ async function readProjectJson(path: string) {
     throw new Error("ZCode 账户文件须使用项目内实体路径");
   return JSON.parse(await readFile(actual, "utf8")) as unknown;
 }
+/** 解密 ZCode 的 enc:v1 凭据，同时兼容已有的明文值。 */
 export function decryptZcodeCredential(value: string, secret: string) {
   if (!value.startsWith("enc:v1:")) return value;
   try {
@@ -112,8 +114,7 @@ export function decryptZcodeCredential(value: string, secret: string) {
   }
 }
 
-// The native app-server delegates account ownership to its host. Reuse only the
-// existing project account and native key-location cache; short-lived tokens stay in memory.
+/** 为原生进程加载项目账户和密钥位置缓存，短期令牌仅保存在内存中。 */
 export async function loadZcodeAccount(
   env: NodeJS.ProcessEnv = process.env,
   request: typeof fetch = fetch,
@@ -132,7 +133,8 @@ export async function loadZcodeAccount(
     .config.defaultModelSelection;
   const builtin = builtinSchema.parse(await readProjectJson(builtinPath));
   const provider = builtin.config.providerConfigRules.providerRules.find(
-    (rule) => rule.providerId === selection.providerId,
+    /* 根据个人配置选中的提供商查找其内置授权规则。 */ (rule) =>
+      rule.providerId === selection.providerId,
   );
   if (
     provider?.config.access?.type !== "zhipu-account" ||
@@ -147,6 +149,7 @@ export async function loadZcodeAccount(
     ".zcode/v2/credentials.json",
   );
   const secret = env.ZCODE_CREDENTIAL_SECRET;
+  /** 读取项目的 OAuth 身份，并生成用于识别登录变更的作用域指纹。 */
   const readIdentity = async () => {
     const credentials = credentialsSchema.parse(
       await readProjectJson(credentialsPath),
@@ -186,11 +189,13 @@ export async function loadZcodeAccount(
     | { token: string; expiresAt: number; apiKeyId: string; scope: string }
     | undefined;
   let resolving: Promise<NonNullable<typeof cached>> | undefined;
+  /** 核对当前登录并使用既有 Coding Plan 位置换取短期令牌。 */
   const refresh = async () => {
     const owner = await readIdentity();
     if (owner.scope !== initial.scope)
       throw new Error("ZCode 项目登录已改变，请重建会话");
     const saved = Object.entries(owner.credentials).flatMap(([key, value]) => {
+      // 筛出属于当前身份且指向受信域名的密钥位置缓存。
       if (!key.startsWith("project-key-location:v1:")) return [];
       try {
         const parsed = cacheKeySchema.safeParse(
@@ -258,7 +263,9 @@ export async function loadZcodeAccount(
           chunks.push(next.value);
         }
       } finally {
-        await reader.cancel().catch(() => {});
+        await reader
+          .cancel()
+          .catch(/* 忽略读取结束后取消响应流时的清理错误。 */ () => {});
         reader.releaseLock();
       }
       const text = Buffer.concat(chunks).toString("utf8");
@@ -296,6 +303,7 @@ export async function loadZcodeAccount(
         },
       },
     },
+    /** 校验请求所属会话和账户，复用仍有效的短期令牌或合并并发刷新。 */
     async headers(value: unknown, sessionId: string) {
       const input = requestSchema.parse(value);
       if (

@@ -23,6 +23,7 @@ const result = z.object({
   response: z.string(),
   projection: z.object({ status: z.literal("idle") }),
 });
+/** 将 ZCode 原生输出、推理、工具和审批事件转换为 ACP 进度通知或最终结果。 */
 export function translateZcodeLine(
   value: unknown,
   sessionId: string,

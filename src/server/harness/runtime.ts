@@ -10,6 +10,7 @@ import { zcodeTelemetry } from "./zcode/zcode-acp-mapping.js";
 import { deepseekTelemetry } from "./deepseek-acp-mapping.js";
 import { projectDirectory as localRoot, projectPath } from "./local-path.js";
 export const executableHarnessSchema = auditedHarnessSchema;
+/** 根据环境变量校验运行配置，为选定执行器准备隔离目录、进程参数和适配器。 */
 export function runtime() {
   const fake = process.env.FAKE_ACP === "1";
   const auth = process.env.TASK_AUTH ?? "existing";

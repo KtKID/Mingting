@@ -12,6 +12,7 @@ export type WakeupDelivery = {
   close?(): Promise<void>;
 };
 
+/** 将唤醒事件编码为带事件标记、任务标识和原会话信息的聊天消息。 */
 export function wakeupMessage(event: WakeupEvent) {
   return (
     `[MINGTING_EVENT ${event.id}]\n明庭任务事件：${event.type}\n` +
@@ -35,6 +36,7 @@ export class WakeupDispatcher {
   private running: Promise<void> = Promise.resolve();
   private dirty = false;
   private stopped = false;
+  /** 初始化唤醒调度器，把重启前仍在发送的事件标记为待核对的失败。 */
   constructor(
     private store: Store,
     readonly delivery: WakeupDelivery,
@@ -49,26 +51,31 @@ export class WakeupDispatcher {
         });
       }
   }
+  /** 标记有待投递事件，并串行安排下一次队列处理。 */
   kick() {
     if (this.stopped) return;
     this.dirty = true;
     this.running = this.running
-      .then(() => this.drain())
+      .then(/* 等待前一轮投递结束后处理待发送队列。 */ () => this.drain())
       .catch((error) => {
+        // 记录队列异常，并保留后续调度能力。
         console.error(
           "聊天唤醒投递异常",
           error instanceof Error ? error.message : "未知错误",
         );
       });
   }
+  /** 等待当前已安排的唤醒投递工作结束。 */
   async idle() {
     await this.running;
   }
+  /** 停止接收新的投递调度，关闭宿主并等待队列收尾。 */
   async close() {
     this.stopped = true;
     await this.delivery.close?.();
     await this.running;
   }
+  /** 逐个投递仍有效的唤醒事件，并持久化状态、回执或错误。 */
   private async drain() {
     if (!this.dirty || this.stopped) return;
     this.dirty = false;

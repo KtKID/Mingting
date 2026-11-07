@@ -41,6 +41,7 @@ const stepUsage = z.object({
   reasoningTokens: tokenCount.optional(),
 });
 
+/** 核对工作目录和会话身份，从完整且无重试的首回合日志恢复用量。 */
 export function mapDeepSeekLog(
   text: string,
   missing: RunUsage,
@@ -51,9 +52,16 @@ export function mapDeepSeekLog(
     const header = logHeader.parse(JSON.parse(first));
     if (header.id !== missing.source.sessionId || header.cwd !== workspace)
       return;
-    const events = lines.map((line) => event.parse(JSON.parse(line)));
-    const start = events.filter(({ type }) => type === "turn/start");
-    const end = events.filter(({ type }) => type === "turn/end");
+    const events = lines.map(
+      /* 逐行解析并校验 DSH 会话事件。 */ (line) =>
+        event.parse(JSON.parse(line)),
+    );
+    const start = events.filter(
+      /* 找出回合开始事件。 */ ({ type }) => type === "turn/start",
+    );
+    const end = events.filter(
+      /* 找出回合结束事件。 */ ({ type }) => type === "turn/end",
+    );
     if (
       start.length !== 1 ||
       end.length !== 1 ||
@@ -113,14 +121,30 @@ export function mapDeepSeekLog(
     if (
       !completed.length ||
       steps.size ||
-      new Set(completed.map(({ step }) => step)).size !== completed.length
+      new Set(
+        completed.map(
+          /* 取已完成步骤的编号，用于检查是否重复。 */ ({ step }) => step,
+        ),
+      ).size !== completed.length
     )
       return;
+    /** 累加已完成步骤的指定用量字段，字段缺失时保留空值。 */
     const sum = (key: keyof z.infer<typeof stepUsage>) => {
-      const values = completed.map(({ usage }) => usage[key]);
-      if (values.some((value) => value === undefined)) return null;
+      const values = completed.map(
+        /* 读取每个已完成步骤的同一项计数。 */ ({ usage }) => usage[key],
+      );
+      if (
+        values.some(
+          /* 检查是否有步骤缺报该字段。 */ (value) => value === undefined,
+        )
+      )
+        return null;
       return tokenCount.parse(
-        values.reduce((total: number, value) => total + (value ?? 0), 0),
+        values.reduce(
+          /* 把各步骤的计数汇总为回合总数。 */ (total: number, value) =>
+            total + (value ?? 0),
+          0,
+        ),
       );
     };
     const usage = normalizeUsage(
@@ -147,6 +171,7 @@ export function mapDeepSeekLog(
   }
 }
 
+/** 按 DSH v4 的目录规则生成长度受限的工作区标识。 */
 function projectKey(workspace: string) {
   // DSH v4 groups logs under a bounded, readable workspace key.
   const slug =
@@ -154,18 +179,20 @@ function projectKey(workspace: string) {
       .replace(/[/\\:]+/g, "-")
       .replace(
         /[^A-Za-z0-9._-]/g,
-        (ch) =>
+        /* 用大写十六进制编码工作区标识中的特殊字符。 */ (ch) =>
           "~" + ch.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0"),
       )
       .replace(/^-+/, "") || "root";
   return "--" + slug.slice(0, 251) + "--";
 }
 
+/** 构造 DeepSeek 用量映射，并绑定会话日志所在目录。 */
 export function deepseekTelemetry(
   home?: string,
   workspace?: string,
 ): AcpTelemetry {
   return {
+    /** 查找指定会话的本地日志，尝试恢复主回合用量。 */
     async recoverUsage(missing) {
       if (
         !home ||
@@ -202,6 +229,7 @@ export function deepseekTelemetry(
         }
       }
     },
+    /** 建立缺失用量记录，供后续按会话日志补齐。 */
     usage(result, modelId, sessionId, adapterVersion, protocolVersion) {
       const usage = normalizeUsage(
         {

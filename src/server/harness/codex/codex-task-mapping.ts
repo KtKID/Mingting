@@ -13,6 +13,7 @@ const fields = {
   totalTokens: "totalTokens",
 } as const;
 
+/** 从 Codex 主回合响应提取标准用量和原字段证据，区分主回合用量与配额信息。 */
 export function codexUsage(
   result: unknown,
   modelId: string | null,
@@ -25,10 +26,12 @@ export function codexUsage(
   const quota = rpcRecord.safeParse(response?._meta).data?.quota;
   const counts = usageCountsSchema.parse(
     Object.fromEntries(
-      Object.entries(fields).map(([key, field]) => [
-        key,
-        tokenCount.safeParse(primary?.[field]).data ?? null,
-      ]),
+      Object.entries(fields).map(
+        /* 读取单项有效计数并写入平台字段，缺失或无效时记为空值。 */ ([
+          key,
+          field,
+        ]) => [key, tokenCount.safeParse(primary?.[field]).data ?? null],
+      ),
     ),
   );
   const usage = normalizeUsage(
@@ -50,15 +53,18 @@ export function codexUsage(
   );
   const evidence = primary
     ? Object.fromEntries(
-        Object.values(fields).map((field) => [
-          field,
-          typeof primary[field] === "number" ? primary[field] : null,
-        ]),
+        Object.values(fields).map(
+          /* 保留响应中各原字段的数值，供审计对照。 */ (field) => [
+            field,
+            typeof primary[field] === "number" ? primary[field] : null,
+          ],
+        ),
       )
     : null;
   return { usage, evidence };
 }
 
+/** 返回已记录的 GPT-6.1-Sol 标称上下文窗口与来源。 */
 export function codexModelWindow(
   modelId: string | null,
 ): SettingsReceipt["modelWindow"] {

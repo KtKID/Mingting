@@ -15,9 +15,11 @@ const grokModels = z.object({
   }),
 });
 
+/** 把有效的 Grok 计数读为整数，其余值记为空值。 */
 const count = (value: unknown) => tokenCount.safeParse(value).data ?? null;
 
 export const grokTelemetry: AcpTelemetry = {
+  /** 映射 Grok 主回合的用量和费用，保留原始字段并标记分项矛盾。 */
   usage(result, modelId, sessionId, adapterVersion, protocolVersion) {
     const response = rpcRecord.safeParse(result).data;
     const meta = rpcRecord.safeParse(response?._meta).data;
@@ -71,12 +73,14 @@ export const grokTelemetry: AcpTelemetry = {
         : null,
     };
   },
+  /** 从 Grok 会话的模型目录读取当前模型的上下文窗口及来源。 */
   modelWindow(modelId, session) {
     if (!modelId) return null;
     const tokens = grokModels
       .safeParse(session)
-      .data?.models.availableModels.find((item) => item.modelId === modelId)
-      ?._meta?.totalContextTokens;
+      .data?.models.availableModels.find(
+        /* 定位会话实际选中的模型。 */ (item) => item.modelId === modelId,
+      )?._meta?.totalContextTokens;
     return tokens
       ? {
           tokens,
@@ -89,6 +93,7 @@ export const grokTelemetry: AcpTelemetry = {
         }
       : null;
   },
+  /** 从会话通知提取已使用的上下文 token 数。 */
   context(notification) {
     const meta = rpcRecord.safeParse(notification._meta).data;
     const used = count(meta?.totalTokens);

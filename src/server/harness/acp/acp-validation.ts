@@ -5,6 +5,7 @@ const schema = createRequire(import.meta.url)(
 );
 const ajv = new Ajv2020({ strict: false, validateFormats: false });
 const validators = new Map<string, ReturnType<typeof ajv.compile>>();
+/** 按 ACP 消息定义名校验数据，并复用已编译的 JSON Schema 校验器。 */
 export function validateAcp(
   name:
     "RequestPermissionRequest" | "SessionNotification" | "InitializeResponse",

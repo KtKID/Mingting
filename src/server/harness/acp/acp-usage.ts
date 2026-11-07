@@ -4,6 +4,7 @@ import { usageCountsSchema, type RunUsage } from "../../../shared/protocol.js";
 export const rpcRecord = z.record(z.string(), z.unknown());
 export const tokenCount = usageCountsSchema.shape.totalTokens.unwrap();
 
+/** 整理主回合用量，标记字段覆盖程度与计数矛盾，并保留数据来源。 */
 export function normalizeUsage(
   counts: z.infer<typeof usageCountsSchema>,
   source: RunUsage["source"],
@@ -26,14 +27,20 @@ export function normalizeUsage(
   ];
   const inconsistent =
     (totalTokens !== null &&
-      parts.every((part) => part !== null) &&
-      parts.reduce((total, part) => total + BigInt(part), 0n) !==
-        BigInt(totalTokens)) ||
+      parts.every(
+        /* 确认总数校验所需的各项计数齐全。 */ (part) => part !== null,
+      ) &&
+      parts.reduce(
+        /* 用大整数精确累加输入、缓存和输出计数。 */ (total, part) =>
+          total + BigInt(part),
+        0n,
+      ) !== BigInt(totalTokens)) ||
     (reasoningTokens !== null &&
       outputTokens !== null &&
       reasoningTokens > outputTokens);
   const reported = Object.values(counts).filter(
-    (count) => count !== null,
+    /* 统计执行器实际报告的字段，保留已报告的零值。 */ (count) =>
+      count !== null,
   ).length;
   return {
     ...counts,

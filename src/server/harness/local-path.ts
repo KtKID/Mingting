@@ -2,6 +2,7 @@ import { lstatSync, mkdirSync } from "node:fs";
 import { resolve, relative, isAbsolute, sep, join } from "node:path";
 import { z } from "zod";
 
+/** 解析项目内路径，并逐段拒绝已存在的符号链接。 */
 export function projectPath(value: string): string {
   const path = resolve(value),
     rel = relative(process.cwd(), path);
@@ -21,6 +22,7 @@ export function projectPath(value: string): string {
   }
   return path;
 }
+/** 校验目标路径后，以 0700 权限创建缺失的项目内目录。 */
 export function projectDirectory(value: string): string {
   const path = projectPath(value);
   mkdirSync(path, { recursive: true, mode: 0o700 });

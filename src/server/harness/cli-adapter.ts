@@ -25,10 +25,13 @@ export type CliConfig = {
 // Native single-prompt CLIs; final JSON is validated independently of ACP discovery.
 export class CliAdapter implements TaskExecutor {
   readonly mode = "codex" as const; // Existing platform wire name for real execution.
+  /** 保存原生 CLI 的启动参数、工作目录和环境配置。 */
   constructor(private config: CliConfig) {}
+  /** 返回 CLI 命令的工作目录。 */
   get workspace() {
     return this.config.workspace;
   }
+  /** 运行单次 CLI 提示，在取消或超限时结束进程，并校验最终 JSON 结果。 */
   async execute(
     text: string,
     signal: AbortSignal,
@@ -49,6 +52,7 @@ export class CliAdapter implements TaskExecutor {
       errorLine = "",
       errorLineDone = false,
       overflow = false;
+    /** 向子进程或其进程组发送信号，允许进程已提前退出。 */
     const kill = (sig: NodeJS.Signals) => {
       try {
         if (process.platform !== "win32" && child.pid)
@@ -59,22 +63,28 @@ export class CliAdapter implements TaskExecutor {
       }
     };
     child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
+      // 累积标准输出，超过字符上限时中止执行。
       if (output.length + chunk.length > LIMITS.outputChars) {
         overflow = true;
         abort();
       } else output += chunk;
     });
     child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
+      // 保留标准错误首行的有限前缀，用于报告执行错误。
       if (!errorLineDone && errorLine.length < 500) {
         errorLineDone = chunk.includes("\n");
         errorLine = (errorLine + chunk).slice(0, 500).split("\n")[0] ?? "";
       }
     });
     let hardKill: NodeJS.Timeout | undefined;
+    /** 先发送终止信号，再安排超时强制退出。 */
     const abort = () => {
       if (hardKill) return;
       kill("SIGTERM");
-      hardKill = setTimeout(() => kill("SIGKILL"), LIMITS.killMs);
+      hardKill = setTimeout(
+        /* 宽限期结束后强制终止子进程。 */ () => kill("SIGKILL"),
+        LIMITS.killMs,
+      );
     };
     signal.addEventListener("abort", abort, { once: true });
     try {
