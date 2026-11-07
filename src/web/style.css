@@ -293,7 +293,7 @@ h1 {
 .list-head,
 .task-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 140px 105px 115px 18px;
+  grid-template-columns: minmax(0, 1fr) 140px 105px 68px 115px 18px;
   gap: 20px;
   align-items: center;
   padding-left: 25px;
@@ -416,6 +416,11 @@ h1 {
 .status-failed {
   color: var(--red);
   background: #fbefec;
+}
+.task-round {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
 }
 .task-row time {
   color: var(--muted);
@@ -931,10 +936,10 @@ pre {
 @media (max-width: 1000px) {
   .list-head,
   .task-row {
-    grid-template-columns: minmax(0, 1fr) 110px 85px 18px;
+    grid-template-columns: minmax(0, 1fr) 110px 85px 62px 18px;
     gap: 13px;
   }
-  .list-head > span:nth-child(4),
+  .list-time,
   .task-row time {
     display: none;
   }
@@ -1030,13 +1035,13 @@ pre {
   }
   .task-row {
     position: relative;
-    grid-template-columns: minmax(0, 1fr) 90px;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     gap: 12px;
     padding: 18px 14px;
     min-height: 120px;
   }
   .task-content {
-    grid-column: 1/3;
+    grid-column: 1 / -1;
     gap: 10px;
     padding-right: 10px;
   }
@@ -1054,6 +1059,10 @@ pre {
     grid-column: 2;
     grid-row: 2;
     justify-self: end;
+  }
+  .task-row > .task-round {
+    grid-column: 3;
+    grid-row: 2;
   }
   .task-icon {
     width: 31px;

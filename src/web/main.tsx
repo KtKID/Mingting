@@ -103,6 +103,12 @@ function Status({ status }: { status: Task["status"] }) {
     </span>
   );
 }
+function taskTurnText({ status, taskTurn }: Pick<Task, "status" | "taskTurn">) {
+  if (taskTurn === undefined) return "—";
+  return status === "succeeded" || status === "failed"
+    ? `共 ${taskTurn} 轮`
+    : `第 ${taskTurn} 轮`;
+}
 const date = (s: string) =>
   new Intl.DateTimeFormat("zh-CN", {
     month: "2-digit",
@@ -548,7 +554,8 @@ function App() {
             <span>任务 / 描述</span>
             <span>发布人</span>
             <span>状态</span>
-            <span>发布时间</span>
+            <span>轮次</span>
+            <span className="list-time">发布时间</span>
             <span />
           </div>
           <div className="task-list">
@@ -594,6 +601,7 @@ function App() {
                   <span>{t.publisherName}</span>
                 </div>
                 <Status status={t.status} />
+                <span className="task-round">{taskTurnText(t)}</span>
                 <time dateTime={t.createdAt}>{date(t.createdAt)}</time>
                 <span className="row-arrow">
                   <Icon name="arrow" />
@@ -854,6 +862,10 @@ function App() {
               <h2 className="detail-title">{detail.task.title}</h2>
               <p className="description">{detail.task.description}</p>
               <dl className="metadata">
+                <div>
+                  <dt>轮次</dt>
+                  <dd>{taskTurnText(detail.task)}</dd>
+                </div>
                 <div>
                   <dt>发布人</dt>
                   <dd>{detail.task.publisherName}</dd>
