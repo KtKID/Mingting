@@ -98,7 +98,31 @@ export class WakeupDispatcher {
         const status = this.delivery.status();
         if (!status.available)
           throw new Error(status.error ?? "聊天唤醒宿主不可用");
+        const scope = this.store.runMessageScope(event.runId);
+        if (scope)
+          this.store.communication(
+            scope.taskId,
+            scope.taskTurn,
+            "mingting",
+            "publisher",
+            "wakeup",
+            {
+              eventId: sending.id,
+              type: sending.type,
+              runId: sending.runId,
+              approvalId: sending.approvalId,
+            },
+          );
         const receipt = await this.delivery.send(sending);
+        if (scope)
+          this.store.communication(
+            scope.taskId,
+            scope.taskTurn,
+            "publisher",
+            "mingting",
+            "wakeup.receipt",
+            receipt ?? null,
+          );
         this.store.saveWakeup({
           ...sending,
           status: "delivered",

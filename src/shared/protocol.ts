@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { wakeupEventSchema, wakeupTargetSchema } from "./task-wakeup.js";
 import {
+  appendTaskSchema,
   dshTaskFields,
   dshWakeupTargetSchema,
   resultReceiptSchema,
@@ -179,6 +180,16 @@ export const publishTaskSchema = publishFieldsSchema.refine(
   (task) => !task.requestedSettings || isAuditedHarness(task.targetHarness),
   { path: ["targetHarness"], message: "显式模型设置需要指定支持设置的执行器" },
 );
+export const taskCommandSchema = z.union([
+  publishFieldsSchema.extend({ action: z.literal("new").optional() }),
+  appendTaskSchema,
+]);
+// MCP tool discovery requires an object schema. The service validates the exact branch.
+export const mcpTaskCommandSchema = publishFieldsSchema.partial().extend({
+  action: z.enum(["new", "append"]).optional(),
+  taskId: appendTaskSchema.shape.taskId.optional(),
+  description: dshTaskFields.description,
+});
 export const taskStatusSchema = z.enum([
   "queued",
   "running",
@@ -192,6 +203,40 @@ export const taskSchema = publishFieldsSchema.omit({ wakeup: true }).extend({
   createdAt: z.string(),
   updatedAt: z.string(),
   currentRunId: z.string().nullable(),
+  taskTurn: z.int().positive().optional(),
+});
+export const taskTurnSchema = z.object({
+  taskId: z.uuid(),
+  taskTurn: z.int().positive(),
+  description: dshTaskFields.description,
+  status: taskStatusSchema,
+  createdAt: z.string(),
+  source: z
+    .object({
+      hostId: z.uuid(),
+      publisherSessionId: z.string().min(1).max(255),
+      originTurn: z.int().positive(),
+    })
+    .nullable(),
+  wakeupTarget: wakeupTargetSchema.or(dshWakeupTargetSchema).nullable(),
+});
+export const taskCommunicationSchema = z.object({
+  taskId: z.uuid(),
+  seq: z.int().positive(),
+  taskTurn: z.int().positive(),
+  from: z.enum(["publisher", "mingting", "executor"]),
+  to: z.enum(["publisher", "mingting", "executor"]),
+  type: z.string(),
+  createdAt: z.string(),
+  content: z.unknown(),
+});
+export type TaskTurn = z.infer<typeof taskTurnSchema>;
+export type TaskCommunication = z.infer<typeof taskCommunicationSchema>;
+export type TaskMessageScope = Pick<TaskCommunication, "taskId" | "taskTurn">;
+export const taskCommunicationPageSchema = z.object({
+  entries: z.array(taskCommunicationSchema),
+  lastSeq: z.int().nonnegative(),
+  nextSeqAfter: z.int().positive().nullable(),
 });
 export const toolSchema = z.object({
   id: z.string(),
@@ -224,6 +269,7 @@ export type RunAudit = z.infer<typeof runAuditSchema>;
 export const runSchema = z.object({
   id: z.string(),
   taskId: z.string(),
+  taskTurn: z.int().positive().optional(),
   status: taskStatusSchema,
   sessionId: z.string().nullable(),
   createdAt: z.string(),
@@ -285,6 +331,9 @@ export const auditPageSchema = z.object({
 });
 export type AuditPage = z.infer<typeof auditPageSchema>;
 export const detailSchema = z.object({
+  turns: z.array(taskTurnSchema.omit({ wakeupTarget: true })).optional(),
+  communicationCount: z.int().nonnegative().optional(),
+  communications: taskCommunicationPageSchema.optional(),
   task: taskSchema,
   runs: z.array(runSchema),
   approvals: z.array(approvalSchema),
@@ -308,7 +357,9 @@ export const browserWakeupSummarySchema = z.object({
     ]),
   }),
   events: z.array(
-    wakeupEventSchema.pick({ id: true, type: true, status: true }),
+    wakeupEventSchema.pick({ id: true, type: true, status: true }).extend({
+      taskTurn: z.int().positive().optional(),
+    }),
   ),
 });
 const browserTaskDetailSchema = detailSchema.extend({
@@ -386,9 +437,13 @@ export const claimTaskSchema = z
     taskId: z.string().uuid(),
     ownerId: z.string().uuid(),
     claimId: z.string().uuid(),
+    deliveryId: z.int().positive().optional(),
   })
   .strict();
-export const ownerSchema = claimTaskSchema.omit({ taskId: true });
+export const ownerSchema = claimTaskSchema.omit({
+  taskId: true,
+  deliveryId: true,
+});
 export const claimResultSchema = z.object({
   task: taskSchema,
   run: runSchema,

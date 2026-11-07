@@ -1,4 +1,5 @@
 import { randomUUID, randomBytes, createHash } from "node:crypto";
+import type { z } from "zod";
 import { EventEmitter } from "node:events";
 import type {
   RequestPermissionRequest,
@@ -10,7 +11,10 @@ import {
   LIMITS,
   isAuditedHarness,
   publishTaskSchema,
+  taskCommandSchema,
   type PublishTask,
+  type Task,
+  type TaskMessageScope,
   type Decision,
   type Run,
   type Owner,
@@ -30,6 +34,7 @@ import { validateAcp } from "../harness/acp/acp-validation.js";
 import { applyProgress } from "./progress.js";
 import { approvalPrompt } from "../../shared/approval.js";
 import {
+  appendTaskSchema,
   taskResultEventSchema,
   type DshAck,
   type DshPublish,
@@ -53,6 +58,12 @@ export class AppError extends Error {
   }
 }
 const now = () => new Date().toISOString();
+type HostPublisher = {
+  hostId: string;
+  source: DshPublisherContext;
+  connected: boolean;
+  subscriptionToken: string;
+};
 export class TaskService {
   private subscriptions = new Map<
     string,
@@ -151,7 +162,20 @@ export class TaskService {
       if (existing) {
         if (existing.fingerprint !== fingerprint)
           throw new AppError(409, "原发布请求的内容已变化");
-        return { taskId: existing.taskId, event: undefined };
+        if (existing.taskTurn !== undefined)
+          this.store.communication(
+            existing.taskId,
+            existing.taskTurn,
+            "publisher",
+            "mingting",
+            "new",
+            taskInput,
+          );
+        return {
+          taskId: existing.taskId,
+          taskTurn: existing.taskTurn,
+          event: undefined,
+        };
       }
       if (this.closed || !connected)
         throw new AppError(503, "DSH 宿主尚未连接完成事件流");
@@ -167,10 +191,18 @@ export class TaskService {
         fingerprint,
         task.id,
       );
-      return { taskId: task.id, event: this.store.deliver(task.id) };
+      return {
+        taskId: task.id,
+        taskTurn: 1,
+        event: this.store.deliver(task.id),
+      };
     });
     if (result.event) this.available(result.event);
-    return { taskId: result.taskId, created: result.event !== undefined };
+    return {
+      taskId: result.taskId,
+      taskTurn: result.taskTurn,
+      created: result.event !== undefined,
+    };
   }
   acknowledgeDshWakeup(hostId: string, ack: DshAck) {
     this.store.transaction(() => {
@@ -195,15 +227,112 @@ export class TaskService {
     });
     return { ok: true };
   }
-  publish(
-    raw: PublishTask,
-    publisher?: {
-      hostId: string;
-      source: DshPublisherContext;
-      connected: boolean;
-      subscriptionToken: string;
-    },
+  isOriginalPublisher(taskId: string, publisher: HostPublisher) {
+    const source = this.store.turn(taskId, 1)?.source;
+    return (
+      source?.hostId === publisher.hostId &&
+      source.publisherSessionId === publisher.source.sessionId
+    );
+  }
+  private append(
+    command: z.infer<typeof appendTaskSchema>,
+    publisher?: HostPublisher,
   ) {
+    if (!publisher) throw new AppError(403, "追加需要已认证的原发布会话");
+    const source = publisher.source;
+    const target = {
+      hostId: publisher.hostId,
+      sessionId: source.targetSessionId ?? source.sessionId,
+      publisherSessionId: source.sessionId,
+      originTurn: source.originTurn,
+    };
+    const fingerprint = createHash("sha256")
+      .update(JSON.stringify([command, target]))
+      .digest("hex");
+    const requestId = `mcp:${source.publishRequestId}`;
+    const result = this.store.transaction(() => {
+      const task = this.store.task(command.taskId);
+      if (!task) throw new AppError(404, "任务不存在");
+      const latest = this.store.turn(task.id);
+      if (!latest) throw new AppError(409, "历史任务不支持追加");
+      if (!this.isOriginalPublisher(task.id, publisher))
+        throw new AppError(403, "只有原发布会话可以追加");
+      const existing = this.store.dshPublication(publisher.hostId, requestId);
+      if (existing) {
+        if (
+          existing.taskId !== task.id ||
+          existing.taskTurn === undefined ||
+          existing.fingerprint !== fingerprint
+        )
+          throw new AppError(409, "原发布请求的内容已变化");
+        this.store.communication(
+          task.id,
+          existing.taskTurn,
+          "publisher",
+          "mingting",
+          "append",
+          command,
+        );
+        return {
+          taskId: task.id,
+          taskTurn: existing.taskTurn,
+          event: undefined,
+        };
+      }
+      if (!publisher.connected)
+        throw new AppError(503, "KMH 宿主尚未连接完成事件流");
+      if (
+        ["queued", "running", "awaiting_approval"].includes(task.status) ||
+        this.store.unfinished().some((run) => run.taskId === task.id)
+      )
+        throw new AppError(409, "原执行尚未释放；请稍后追加");
+      if (this.store.countActive() >= LIMITS.queue)
+        throw new AppError(429, "队列已满");
+      const taskTurn = latest.taskTurn + 1;
+      this.store.saveTurn({
+        taskId: task.id,
+        taskTurn,
+        description: command.description,
+        status: "queued",
+        createdAt: now(),
+        source: {
+          hostId: target.hostId,
+          publisherSessionId: source.sessionId,
+          originTurn: source.originTurn,
+        },
+        wakeupTarget: target,
+      });
+      task.status = "queued";
+      task.currentRunId = null;
+      this.store.saveTask(task);
+      this.store.communication(
+        task.id,
+        taskTurn,
+        "publisher",
+        "mingting",
+        "append",
+        command,
+      );
+      this.store.recordDshPublication(
+        publisher.hostId,
+        requestId,
+        fingerprint,
+        task.id,
+        taskTurn,
+      );
+      return { taskId: task.id, taskTurn, event: this.store.deliver(task.id) };
+    });
+    if (result.event) this.available(result.event);
+    return { taskId: result.taskId, taskTurn: result.taskTurn };
+  }
+  publishCommand(raw: unknown, publisher?: HostPublisher) {
+    if (this.closed) throw new AppError(503, "服务正在停止");
+    const command = taskCommandSchema.parse(raw);
+    if (command.action === "append") return this.append(command, publisher);
+    const { action: _action, ...fields } = command;
+    return this.publish(fields, publisher);
+  }
+  publish(raw: PublishTask, publisher?: HostPublisher) {
     if (this.closed) throw new AppError(503, "服务正在停止");
     const input = publishTaskSchema.parse(raw);
     if (publisher && input.wakeup)
@@ -243,7 +372,16 @@ export class TaskService {
             !this.store.resultSubscriber(existing.taskId, tokenHash)
           )
             throw new AppError(409, "原发布请求的内容或凭据已变化");
-          return { task, event: undefined };
+          if (existing.taskTurn !== undefined)
+            this.store.communication(
+              task.id,
+              existing.taskTurn,
+              "publisher",
+              "mingting",
+              "new",
+              input,
+            );
+          return { task, taskTurn: existing.taskTurn, event: undefined };
         }
         if (!publisher.connected)
           throw new AppError(503, "KMH 宿主尚未连接完成事件流");
@@ -261,12 +399,13 @@ export class TaskService {
           fingerprint,
           task.id,
         );
-      return { task, event: this.store.deliver(task.id) };
+      return { task, taskTurn: 1, event: this.store.deliver(task.id) };
     });
     if (result.event) this.available(result.event);
     const subscription = { taskId: result.task.id, subscriptionToken };
     return {
       taskId: result.task.id,
+      taskTurn: result.taskTurn,
       resultSubscription: subscription,
       ...(wakeupTarget ? { wakeupTarget } : {}),
       ...(input.wakeup ? { wakeup: input.wakeup } : {}),
@@ -353,7 +492,7 @@ export class TaskService {
   private tokenHash(token: string) {
     return createHash("sha256").update(token).digest("hex");
   }
-  private requireSubscriber(subscription: ApprovalSubscription) {
+  requireSubscriber(subscription: ApprovalSubscription) {
     if (
       !this.store.approvalSubscriber(
         subscription.taskId,
@@ -425,7 +564,45 @@ export class TaskService {
       signal?.removeEventListener("abort", stop);
     }
   }
-  claim(taskId: string, owner: Owner, generation?: string): Claim {
+  private claimIdentity(task: Task, ownerId: string, generation?: string) {
+    const subscription = this.subscriptions.get(ownerId);
+    if (generation && subscription?.generation !== generation)
+      throw new AppError(409, "领取请求不属于当前订阅连接");
+    const identity = subscription?.identity;
+    if (
+      task.targetHarness &&
+      identity?.harnessName.toLowerCase() !== task.targetHarness.toLowerCase()
+    )
+      throw new AppError(403, "请以目标 harness 身份保持在线订阅后领取");
+    return identity;
+  }
+  claimMessageScope(
+    taskId: string,
+    owner: Owner,
+    generation?: string,
+    deliveryId?: number,
+  ): TaskMessageScope | undefined {
+    const task = this.store.task(taskId);
+    if (!task) return;
+    this.claimIdentity(task, owner.ownerId, generation);
+    if (deliveryId === undefined) return this.store.taskMessageScope(taskId);
+    const delivery = this.store.deliveryTurn(deliveryId);
+    return delivery?.taskId === taskId && delivery.taskTurn !== undefined
+      ? { taskId, taskTurn: delivery.taskTurn }
+      : undefined;
+  }
+  runMessageScope(runId: string, owner: Owner) {
+    const lease = this.store.lease(runId);
+    return lease?.ownerId === owner.ownerId && lease.claimId === owner.claimId
+      ? this.store.runMessageScope(runId)
+      : undefined;
+  }
+  claim(
+    taskId: string,
+    owner: Owner,
+    generation?: string,
+    deliveryId?: number,
+  ): Claim {
     if (this.closed) throw new AppError(503, "服务正在停止");
     if (Date.now() < this.resumeNotBefore)
       throw new AppError(409, "重启后等待旧连接器停止");
@@ -433,15 +610,18 @@ export class TaskService {
     return this.store.transaction(() => {
       const t = this.store.task(taskId);
       if (!t) throw new AppError(404, "任务不存在");
-      const subscription = this.subscriptions.get(owner.ownerId);
-      if (generation && subscription?.generation !== generation)
-        throw new AppError(409, "领取请求不属于当前订阅连接");
-      const identity = subscription?.identity;
-      if (
-        t.targetHarness &&
-        identity?.harnessName.toLowerCase() !== t.targetHarness.toLowerCase()
-      )
-        throw new AppError(403, "请以目标 harness 身份保持在线订阅后领取");
+      const turn = this.store.turn(taskId);
+      if (deliveryId !== undefined) {
+        const delivery = this.store.deliveryTurn(deliveryId);
+        if (
+          !delivery ||
+          delivery.taskId !== taskId ||
+          delivery.taskTurn !== turn?.taskTurn
+        )
+          throw new AppError(410, "领取事件已过期");
+      } else if (turn && turn.taskTurn > 1)
+        throw new AppError(410, "追加轮需要对应领取事件");
+      const identity = this.claimIdentity(t, owner.ownerId, generation);
       if (t.currentRunId) {
         const old = this.store.run(t.currentRunId)!;
         const lease = this.store.lease(old.id);
@@ -451,7 +631,7 @@ export class TaskService {
           lease.claimId === owner.claimId
         )
           return {
-            task: t,
+            task: turn ? { ...t, description: turn.description } : t,
             run: old,
             ...owner,
             leaseMs: LIMITS.leaseMs,
@@ -465,6 +645,7 @@ export class TaskService {
       const run: Run = {
         id: randomUUID(),
         taskId,
+        ...(turn ? { taskTurn: turn.taskTurn } : {}),
         status: "running",
         sessionId: null,
         createdAt: now(),
@@ -489,7 +670,7 @@ export class TaskService {
         Date.now() + LIMITS.leaseMs,
       );
       return {
-        task: t,
+        task: turn ? { ...t, description: turn.description } : t,
         run,
         ...owner,
         leaseMs: LIMITS.leaseMs,
@@ -834,7 +1015,8 @@ export class TaskService {
     )
       throw new AppError(409, "原执行尚未释放；请稍后重试");
     if (
-      d.runs.length >= LIMITS.runsPerTask ||
+      d.runs.filter((run) => run.taskTurn === d.turns?.at(-1)?.taskTurn)
+        .length >= LIMITS.runsPerTask ||
       this.store.countActive() >= LIMITS.queue
     )
       throw new AppError(429, "已达到队列或重试上限");

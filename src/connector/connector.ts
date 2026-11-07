@@ -25,7 +25,7 @@ export class TaskConnector {
   private runAbort?: AbortController;
   private loop?: Promise<void>;
   private pumping?: Promise<void>;
-  private pending = new Map<string, string>();
+  private pending = new Map<number, { taskId: string; claimId: string }>();
   private cursor = 0;
   private generation?: string;
   private probe?: Promise<void>;
@@ -72,8 +72,11 @@ export class TaskConnector {
             this.onEvent?.(event);
           } catch {}
           if (this.acceptsTask && !this.acceptsTask(event.taskId)) continue;
-          if (!this.pending.has(event.taskId))
-            this.pending.set(event.taskId, randomUUID());
+          if (!this.pending.has(event.id))
+            this.pending.set(event.id, {
+              taskId: event.taskId,
+              claimId: randomUUID(),
+            });
           this.kick();
         }
       } catch {
@@ -144,7 +147,9 @@ export class TaskConnector {
       this.generation &&
       !this.connection?.signal.aborted
     ) {
-      const [taskId, claimId] = this.pending.entries().next().value!;
+      const [deliveryId, { taskId, claimId }] = this.pending
+        .entries()
+        .next().value!;
       let claim: Claim;
       try {
         claim = claimResultSchema.parse(
@@ -153,6 +158,7 @@ export class TaskConnector {
             "/connector/claim",
             {
               taskId,
+              deliveryId,
               ownerId: this.ownerId,
               claimId,
               generation: this.generation,
@@ -162,7 +168,7 @@ export class TaskConnector {
         );
       } catch (e) {
         if (e instanceof HttpError && [404, 410].includes(e.status)) {
-          this.pending.delete(taskId);
+          this.pending.delete(deliveryId);
           continue;
         }
         await delay(LIMITS.reconnectMs, undefined, {
@@ -170,7 +176,7 @@ export class TaskConnector {
         }).catch(() => {});
         continue;
       }
-      this.pending.delete(taskId);
+      this.pending.delete(deliveryId);
       await this.execute(claim);
     }
   }

@@ -14,12 +14,14 @@ import {
   isAuditedHarness,
   publishResultSchema,
   browserSnapshotSchema,
+  detailSchema,
   auditPageSchema,
   type AuditPage,
   type HarnessSubscription,
   type Bootstrap,
   type Task,
   type BrowserTaskDetail,
+  type TaskDetail,
   type Approval,
   type RunUsage,
 } from "../shared/protocol";
@@ -194,12 +196,17 @@ function App() {
   const [chosenRunId, setChosenRunId] = useState<string>();
   const [audit, setAudit] = useState<AuditPage>();
   const auditRequest = useRef(0);
+  const [communications, setCommunications] =
+    useState<TaskDetail["communications"]>();
+  const communicationRequest = useRef(0);
   const selectedRun =
     detail?.runs.find((run) => run.id === chosenRunId) ?? detail?.runs[0];
   useEffect(() => {
     setChosenRunId(undefined);
     setAudit(undefined);
+    setCommunications(undefined);
     auditRequest.current++;
+    communicationRequest.current++;
   }, [selected]);
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
@@ -376,6 +383,21 @@ function App() {
     } catch (e) {
       if (request === auditRequest.current)
         setError(e instanceof Error ? e.message : "读取审计失败");
+    }
+  }
+  async function showCommunications(seqAfter = 0) {
+    if (!selected) return;
+    const request = ++communicationRequest.current;
+    try {
+      const page = await api(
+        `/tasks/${selected}?seqAfter=${seqAfter}`,
+        detailSchema,
+      );
+      if (request === communicationRequest.current)
+        setCommunications(page.communications);
+    } catch (e) {
+      if (request === communicationRequest.current)
+        setError(e instanceof Error ? e.message : "读取通信记录失败");
     }
   }
   async function publish(e: FormEvent<HTMLFormElement>) {
@@ -892,6 +914,9 @@ function App() {
                     {wakeup?.events.length
                       ? wakeup.events.map((event) => (
                           <div key={event.id}>
+                            {event.taskTurn === undefined
+                              ? ""
+                              : `第 ${event.taskTurn} 轮 · `}
                             {event.type === "approval.requested"
                               ? "审批通知"
                               : "完成通知"}
@@ -905,6 +930,80 @@ function App() {
                   </dd>
                 </div>
               </dl>
+              {detail.turns && (
+                <section className="result" aria-label="任务轮次">
+                  <h3>任务轮次</h3>
+                  {detail.turns.map((turn) => {
+                    const run = detail.runs.find(
+                      (item) => item.taskTurn === turn.taskTurn,
+                    );
+                    return (
+                      <details key={turn.taskTurn}>
+                        <summary>
+                          第 {turn.taskTurn} 轮 · {statusNames[turn.status]}
+                        </summary>
+                        <p className="description">{turn.description}</p>
+                        {turn.source && (
+                          <dl className="metadata">
+                            <div>
+                              <dt>来源宿主</dt>
+                              <dd>{turn.source.hostId}</dd>
+                            </div>
+                            <div>
+                              <dt>发布者会话</dt>
+                              <dd>{turn.source.publisherSessionId}</dd>
+                            </div>
+                            <div>
+                              <dt>发起会话轮次</dt>
+                              <dd>{turn.source.originTurn}</dd>
+                            </div>
+                          </dl>
+                        )}
+                        {run && (
+                          <p className="description">
+                            {run.output || run.error || "等待执行结果"}
+                          </p>
+                        )}
+                      </details>
+                    );
+                  })}
+                </section>
+              )}
+              {detail.communicationCount !== undefined && (
+                <section className="result" aria-label="通信记录">
+                  <h3>
+                    通信记录 ·{" "}
+                    {communications?.lastSeq ?? detail.communicationCount} 条
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => void showCommunications()}
+                  >
+                    {communications ? "刷新通信记录" : "查看通信记录"}
+                  </button>
+                  {communications?.entries.map((entry) => (
+                    <details key={entry.seq}>
+                      <summary>
+                        #{entry.seq} · 第 {entry.taskTurn} 轮 · {entry.from} →{" "}
+                        {entry.to} · {entry.type} · {date(entry.createdAt)}
+                      </summary>
+                      <pre>{JSON.stringify(entry.content, null, 2)}</pre>
+                    </details>
+                  ))}
+                  {communications?.nextSeqAfter != null && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void showCommunications(
+                          communications.nextSeqAfter ?? 0,
+                        )
+                      }
+                    >
+                      下一页
+                    </button>
+                  )}
+                </section>
+              )}
               {detail.runs.length > 1 && (
                 <label>
                   查看运行
@@ -918,6 +1017,9 @@ function App() {
                   >
                     {detail.runs.map((run, index) => (
                       <option key={run.id} value={run.id}>
+                        {run.taskTurn === undefined
+                          ? ""
+                          : `第 ${run.taskTurn} 轮 · `}
                         {index === 0 ? "最新运行" : date(run.createdAt)} ·{" "}
                         {run.id.slice(0, 8)}
                       </option>

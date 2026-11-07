@@ -4,6 +4,11 @@ import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import {
   LIMITS,
+  taskTurnSchema,
+  taskCommunicationSchema,
+  type TaskTurn,
+  type TaskCommunication,
+  type TaskMessageScope,
   isAuditedHarness,
   type Task,
   type Run,
@@ -34,6 +39,18 @@ import {
 } from "../../shared/task-wakeup.js";
 const now = () => new Date().toISOString();
 const storedWakeupTargetSchema = wakeupTargetSchema.or(dshWakeupTargetSchema);
+
+const privateMessageFields =
+  /^(authorization|cookie|csrf|claimId|publishRequestId|originTurnId|rawInput|rawOutput|(?:subscription|access|refresh|auth|bearer)?token)$|secret|password|api[_-]?key|private[_-]?key/i;
+function communicationContent(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(communicationContent);
+  if (value === null || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => !privateMessageFields.test(key))
+      .map(([key, item]) => [key, communicationContent(item)]),
+  );
+}
 
 function summarizeUsage(runs: Run[]): TaskDetail["usageSummary"] {
   const finished = runs.filter((run) => run.endedAt);
@@ -111,27 +128,151 @@ export class Store {
       CREATE TABLE IF NOT EXISTS dsh_publish_requests (host_id TEXT NOT NULL,request_id TEXT NOT NULL, fingerprint TEXT NOT NULL,task_id TEXT NOT NULL REFERENCES tasks(id),PRIMARY KEY(host_id,request_id));
       CREATE INDEX IF NOT EXISTS task_wakeup_host_pending ON task_wakeup_events(json_extract(data,'$.target.hostId'),json_extract(data,'$.status')) WHERE json_extract(data,'$.target.hostId') IS NOT NULL;
       CREATE INDEX IF NOT EXISTS task_wakeup_status ON task_wakeup_events(json_extract(data,'$.status'));`);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS task_turns (task_id TEXT NOT NULL REFERENCES tasks(id), task_turn INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY(task_id,task_turn));
+      CREATE TABLE IF NOT EXISTS task_communications (task_id TEXT NOT NULL REFERENCES tasks(id), seq INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY(task_id,seq));
+    `);
+    for (const table of ["deliveries", "dsh_publish_requests"]) {
+      if (
+        !this.db
+          .prepare(`PRAGMA table_info(${table})`)
+          .all()
+          .some((row) => row.name === "task_turn")
+      )
+        this.db.exec(`ALTER TABLE ${table} ADD COLUMN task_turn INTEGER`);
+    }
   }
-  transaction<T>(fn: () => T): T {
+  turns(taskId: string): TaskTurn[] {
+    return this.db
+      .prepare("SELECT data FROM task_turns WHERE task_id=? ORDER BY task_turn")
+      .all(taskId)
+      .map((row) => taskTurnSchema.parse(JSON.parse(String(row.data))));
+  }
+  turn(taskId: string, taskTurn?: number): TaskTurn | undefined {
+    const row =
+      taskTurn === undefined
+        ? this.db
+            .prepare(
+              "SELECT data FROM task_turns WHERE task_id=? ORDER BY task_turn DESC LIMIT 1",
+            )
+            .get(taskId)
+        : this.db
+            .prepare(
+              "SELECT data FROM task_turns WHERE task_id=? AND task_turn=?",
+            )
+            .get(taskId, taskTurn);
+    return row ? taskTurnSchema.parse(JSON.parse(String(row.data))) : undefined;
+  }
+  taskMessageScope(taskId: string): TaskMessageScope | undefined {
+    const turn = this.turn(taskId);
+    return turn && { taskId, taskTurn: turn.taskTurn };
+  }
+  runMessageScope(runId: string): TaskMessageScope | undefined {
+    const run = this.run(runId);
+    return run?.taskTurn === undefined
+      ? undefined
+      : { taskId: run.taskId, taskTurn: run.taskTurn };
+  }
+  saveTurn(turn: TaskTurn) {
+    this.db
+      .prepare(
+        "INSERT INTO task_turns VALUES(?,?,?) ON CONFLICT(task_id,task_turn) DO UPDATE SET data=excluded.data",
+      )
+      .run(
+        turn.taskId,
+        turn.taskTurn,
+        JSON.stringify(taskTurnSchema.parse(turn)),
+      );
+  }
+  communication(
+    taskId: string,
+    taskTurn: number,
+    from: TaskCommunication["from"],
+    to: TaskCommunication["to"],
+    type: string,
+    content: unknown,
+  ) {
+    const write = () => {
+      const seq = this.lastCommunication(taskId) + 1;
+      const entry = taskCommunicationSchema.parse({
+        taskId,
+        taskTurn,
+        seq,
+        from,
+        to,
+        type,
+        content: communicationContent(content),
+        createdAt: now(),
+      });
+      this.db
+        .prepare("INSERT INTO task_communications VALUES(?,?,?)")
+        .run(taskId, seq, JSON.stringify(entry));
+      return entry;
+    };
+    return this.inTransaction ? write() : this.transaction(write, false);
+  }
+  private lastCommunication(taskId: string) {
+    const row = this.db
+      .prepare(
+        "SELECT seq FROM task_communications WHERE task_id=? ORDER BY seq DESC LIMIT 1",
+      )
+      .get(taskId);
+    return Number(row?.seq ?? 0);
+  }
+  communications(taskId: string, seqAfter = 0) {
+    const rows = this.db
+      .prepare(
+        "SELECT data FROM task_communications WHERE task_id=? AND seq>? ORDER BY seq LIMIT ?",
+      )
+      .all(taskId, seqAfter, LIMITS.list + 1);
+    const entries = rows
+      .slice(0, LIMITS.list)
+      .map((row) =>
+        taskCommunicationSchema.parse(JSON.parse(String(row.data))),
+      );
+    return {
+      entries,
+      lastSeq: this.lastCommunication(taskId),
+      nextSeqAfter:
+        rows.length > LIMITS.list ? (entries.at(-1)?.seq ?? null) : null,
+    };
+  }
+  deliveryTurn(id: number) {
+    const row = this.db
+      .prepare("SELECT task_id,task_turn FROM deliveries WHERE id=?")
+      .get(id);
+    return (
+      row && {
+        taskId: String(row.task_id),
+        taskTurn: row.task_turn == null ? undefined : Number(row.task_turn),
+      }
+    );
+  }
+  transaction<T>(fn: () => T, notify = true): T {
     this.db.exec("BEGIN IMMEDIATE");
     this.inTransaction = true;
+    let result: T;
     try {
-      const result = fn();
+      result = fn();
       this.db.exec("COMMIT");
-      this.inTransaction = false;
-      this.onChange();
-      return result;
     } catch (e) {
       this.db.exec("ROLLBACK");
-      this.inTransaction = false;
       throw e;
+    } finally {
+      this.inTransaction = false;
     }
+    if (notify) this.onChange();
+    return result;
   }
   list(): Task[] {
     return this.db
       .prepare("SELECT data FROM tasks ORDER BY rowid DESC LIMIT ?")
       .all(LIMITS.list)
-      .map((r) => taskSchema.parse(JSON.parse(r.data as string)));
+      .map((r) => {
+        const task = taskSchema.parse(JSON.parse(String(r.data)));
+        const scope = this.taskMessageScope(task.id);
+        return scope ? { ...task, taskTurn: scope.taskTurn } : task;
+      });
   }
   queued(): Task | undefined {
     const r = this.db
@@ -156,6 +297,9 @@ export class Store {
   }
   saveTask(t: Task) {
     t.updatedAt = now();
+    const latest = this.turn(t.id);
+    if (latest && latest.status !== t.status)
+      this.saveTurn({ ...latest, status: t.status });
     this.db
       .prepare(
         "INSERT INTO tasks(id,data) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data",
@@ -176,20 +320,37 @@ export class Store {
     };
     this.saveTask(t);
     const target = hostTarget ?? wakeup;
-    if (target)
-      this.db
-        .prepare("INSERT INTO task_wakeup_targets VALUES(?,?)")
-        .run(t.id, JSON.stringify(target));
+    this.saveTurn({
+      taskId: t.id,
+      taskTurn: 1,
+      description: t.description,
+      status: t.status,
+      createdAt: t.createdAt,
+      source: hostTarget
+        ? {
+            hostId: hostTarget.hostId,
+            publisherSessionId:
+              hostTarget.publisherSessionId ?? hostTarget.sessionId,
+            originTurn: hostTarget.originTurn,
+          }
+        : null,
+      wakeupTarget: target ?? null,
+    });
+    this.communication(t.id, 1, "publisher", "mingting", "new", taskInput);
     return t;
   }
   dshPublication(hostId: string, requestId: string) {
     const row = this.db
       .prepare(
-        "SELECT task_id, fingerprint FROM dsh_publish_requests WHERE host_id=? AND request_id=?",
+        "SELECT task_id, fingerprint, task_turn FROM dsh_publish_requests WHERE host_id=? AND request_id=?",
       )
       .get(hostId, requestId);
     return row
-      ? { taskId: String(row.task_id), fingerprint: String(row.fingerprint) }
+      ? {
+          taskId: String(row.task_id),
+          fingerprint: String(row.fingerprint),
+          taskTurn: row.task_turn == null ? undefined : Number(row.task_turn),
+        }
       : undefined;
   }
   recordDshPublication(
@@ -197,10 +358,13 @@ export class Store {
     requestId: string,
     fingerprint: string,
     taskId: string,
+    taskTurn = 1,
   ) {
     this.db
-      .prepare("INSERT INTO dsh_publish_requests VALUES(?,?,?,?)")
-      .run(hostId, requestId, fingerprint, taskId);
+      .prepare(
+        "INSERT INTO dsh_publish_requests(host_id,request_id,fingerprint,task_id,task_turn) VALUES(?,?,?,?,?)",
+      )
+      .run(hostId, requestId, fingerprint, taskId, taskTurn);
   }
   saveRun(r: Run) {
     this.db
@@ -222,32 +386,35 @@ export class Store {
     this.changed();
   }
   wakeupTarget(taskId: string): WakeupTarget | undefined {
-    const row = this.db
-      .prepare(
-        "SELECT data FROM task_wakeup_targets WHERE task_id=? AND json_extract(data,'$.hostId') IS NULL",
-      )
-      .get(taskId);
-    return row
-      ? wakeupTargetSchema.parse(JSON.parse(String(row.data)))
-      : undefined;
+    const target = this.wakeupBinding(taskId);
+    return target && "threadId" in target ? target : undefined;
   }
-  browserWakeupSummary(taskId: string) {
+  private wakeupBinding(taskId: string, taskTurn?: number) {
+    const turn = this.turn(taskId, taskTurn);
+    if (turn) return turn.wakeupTarget ?? undefined;
     const row = this.db
       .prepare("SELECT data FROM task_wakeup_targets WHERE task_id=?")
       .get(taskId);
-    if (!row) return;
-    const binding = storedWakeupTargetSchema.parse(
-      JSON.parse(String(row.data)),
-    );
+    return row
+      ? storedWakeupTargetSchema.parse(JSON.parse(String(row.data)))
+      : undefined;
+  }
+  browserWakeupSummary(taskId: string) {
+    const binding = this.wakeupBinding(taskId);
+    if (!binding) return;
+    const multipleTurns = (this.turn(taskId)?.taskTurn ?? 0) > 1;
     const target =
       "sessionId" in binding
         ? { sessionId: binding.sessionId, originTurn: binding.originTurn }
         : { sessionId: binding.threadId, originTurn: binding.originTurnId };
     const events = this.db
       .prepare(
-        "SELECT id, json_extract(data,'$.type') AS type, json_extract(data,'$.status') AS status FROM task_wakeup_events WHERE task_id=? ORDER BY rowid",
+        "SELECT e.id, json_extract(e.data,'$.type') AS type, json_extract(e.data,'$.status') AS status, json_extract(r.data,'$.taskTurn') AS taskTurn FROM task_wakeup_events e LEFT JOIN runs r ON r.id=json_extract(e.data,'$.runId') WHERE e.task_id=? ORDER BY e.rowid",
       )
-      .all(taskId);
+      .all(taskId)
+      .map(({ taskTurn, ...event }) =>
+        multipleTurns && taskTurn !== null ? { ...event, taskTurn } : event,
+      );
     return browserWakeupSummarySchema.parse({ target, events });
   }
   private enqueueWakeup(
@@ -256,11 +423,8 @@ export class Store {
     runId: string,
     approvalId: string | null,
   ) {
-    const row = this.db
-      .prepare("SELECT data FROM task_wakeup_targets WHERE task_id=?")
-      .get(taskId);
-    if (!row) return;
-    const target: unknown = JSON.parse(String(row.data));
+    const target = this.wakeupBinding(taskId, this.run(runId)?.taskTurn);
+    if (!target) return;
     const dshTarget = dshWakeupTargetSchema.safeParse(target);
     if (dshTarget.success && type !== "task.completed") return;
     const record = {
@@ -431,7 +595,7 @@ export class Store {
     const audit = row && runAuditSchema.parse(JSON.parse(String(row.data)));
     return audit?.kind === "context" ? audit.observation : undefined;
   }
-  detail(id: string): TaskDetail | undefined {
+  detail(id: string, seqAfter?: number): TaskDetail | undefined {
     const task = this.task(id);
     if (!task) return;
     const runs = this.db
@@ -455,12 +619,25 @@ export class Store {
             eventSchema.parse({ ...JSON.parse(r.data as string), id: r.id }),
           )
       : [];
+    const turns = this.turns(id);
+    const latest = turns.at(-1);
     return {
-      task,
+      task: latest ? { ...task, taskTurn: latest.taskTurn } : task,
       runs,
       approvals,
       events,
       usageSummary: summarizeUsage(runs),
+      ...(latest
+        ? {
+            turns: turns.map(
+              ({ wakeupTarget: _wakeupTarget, ...turn }) => turn,
+            ),
+            communicationCount: this.lastCommunication(id),
+          }
+        : {}),
+      ...(latest && seqAfter !== undefined
+        ? { communications: this.communications(id, seqAfter) }
+        : {}),
     };
   }
   run(id: string): Run | undefined {
@@ -486,8 +663,10 @@ export class Store {
   deliver(taskId: string): DeliveryEvent {
     const createdAt = now();
     const result = this.db
-      .prepare("INSERT INTO deliveries(task_id,created_at) VALUES(?,?)")
-      .run(taskId, createdAt);
+      .prepare(
+        "INSERT INTO deliveries(task_id,created_at,task_turn) VALUES(?,?,?)",
+      )
+      .run(taskId, createdAt, this.turn(taskId)?.taskTurn ?? null);
     return {
       id: Number(result.lastInsertRowid),
       type: "task.available",

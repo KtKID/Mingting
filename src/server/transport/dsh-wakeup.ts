@@ -11,6 +11,7 @@ import {
 } from "../../shared/dsh-wakeup.js";
 import { LIMITS, type Run } from "../../shared/protocol.js";
 import { AppError, type TaskService } from "../tasks/service.js";
+import { taskExchange, taskMessage } from "./task-communication.js";
 
 // KMH's SSE reader accepts at most this many UTF-16 code units per frame.
 const maxHostFrameLength = 16_384;
@@ -37,7 +38,7 @@ function completionFrame(
     });
     const frame = `event: task.completed\ndata: ${JSON.stringify(completion)}\n\n`;
     // JSON escaping can expand the result past the peer's frame limit.
-    if (frame.length <= maxHostFrameLength) return frame;
+    if (frame.length <= maxHostFrameLength) return { frame, completion };
   }
 }
 
@@ -105,7 +106,20 @@ export function dshWakeupRouter(
       dshPublishSchema.parse(req.body),
       connected,
     );
-    res.status(result.created ? 201 : 200).json({ taskId: result.taskId });
+    const receipt = { taskId: result.taskId };
+    const scope =
+      result.taskTurn === undefined
+        ? undefined
+        : { ...receipt, taskTurn: result.taskTurn };
+    taskMessage(
+      service.store,
+      scope,
+      "publisher",
+      "send",
+      "new.response",
+      receipt,
+    );
+    res.status(result.created ? 201 : 200).json(receipt);
   });
 
   router.get("/events", (req, res) => {
@@ -119,15 +133,16 @@ export function dshWakeupRouter(
     });
     res.setTimeout(0);
     const stop = () => res.end();
-    const send = () => {
-      if (res.writableEnded) return;
+    const sendEvent = () => {
+      if (res.writableEnded || res.destroyed) return;
       const event = service.store.pendingDshWakeup(hostId);
       if (!event || lastSent === event.id) return;
+      const version = req.headers[wakeupResultHeader];
       const run =
-        req.headers[wakeupResultHeader] === "1"
+        version === "1" || version === "2"
           ? service.store.run(event.runId)
           : undefined;
-      const frame = completionFrame(
+      const { frame, completion } = completionFrame(
         {
           eventId: event.id,
           taskId: event.taskId,
@@ -135,12 +150,30 @@ export function dshWakeupRouter(
           sessionId: event.target.sessionId,
           originTurn: event.target.originTurn,
           completedAt: event.createdAt,
+          ...(version === "2" && run?.taskTurn !== undefined
+            ? { taskTurn: run.taskTurn }
+            : {}),
         },
         run,
         resultTextLimit,
       );
       lastSent = event.id;
+      taskMessage(
+        service.store,
+        service.store.runMessageScope(event.runId),
+        "publisher",
+        "send",
+        "wakeup",
+        completion,
+      );
       if (!res.write(frame)) stop();
+    };
+    const send = () => {
+      try {
+        sendEvent();
+      } catch {
+        stop();
+      }
     };
     const heartbeat = setInterval(() => {
       if (!res.write(": heartbeat\n\n")) stop();
@@ -158,8 +191,16 @@ export function dshWakeupRouter(
   });
 
   router.post("/ack", (req, res) => {
+    const ack = dshAckSchema.parse(req.body);
+    const event = service.store.dshWakeup(ack.eventId, hostId);
+    const scope =
+      event?.target.sessionId === ack.sessionId
+        ? service.store.runMessageScope(event.runId)
+        : undefined;
     res.json(
-      service.acknowledgeDshWakeup(hostId, dshAckSchema.parse(req.body)),
+      taskExchange(service.store, scope, "publisher", "wakeup.ack", ack, () =>
+        service.acknowledgeDshWakeup(hostId, ack),
+      ),
     );
   });
   return { router, publisher };

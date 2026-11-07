@@ -7,6 +7,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import {
   LIMITS,
   publishTaskSchema,
+  mcpTaskCommandSchema,
   decisionSchema,
   claimTaskSchema,
   ownerSchema,
@@ -18,6 +19,7 @@ import {
   subscriberDecisionSchema,
   approvalWaitSchema,
   type DeliveryEvent,
+  type TaskMessageScope,
 } from "../../shared/protocol.js";
 import { Store } from "../storage/store.js";
 import { TaskService, AppError } from "../tasks/service.js";
@@ -28,8 +30,10 @@ import { dshWakeupRouter, type DshWakeupHost } from "./dsh-wakeup.js";
 import { wakeupAcknowledgementSchema } from "../../shared/task-wakeup.js";
 import {
   publisherContextKey,
+  taskCommandDescription,
   publishTaskToolName,
 } from "../../shared/dsh-wakeup.js";
+import { taskExchange, taskMessage } from "./task-communication.js";
 
 function withTaskUrl<T extends { taskId: string }>(req: Request, receipt: T) {
   return {
@@ -239,15 +243,29 @@ export function createPlatform(config: Config) {
     // Subscribe before the full SQLite snapshot; reconnect replaces browser state atomically.
     send();
   });
-  app.post("/api/tasks", (req, res) =>
-    res
-      .status(201)
-      .json(
-        withTaskUrl(req, service.publish(publishTaskSchema.parse(req.body))),
-      ),
-  );
+  app.post("/api/tasks", (req, res) => {
+    const receipt = withTaskUrl(
+      req,
+      service.publish(publishTaskSchema.parse(req.body)),
+    );
+    taskMessage(
+      store,
+      store.taskMessageScope(receipt.taskId),
+      "publisher",
+      "send",
+      "new.response",
+      receipt,
+    );
+    res.status(201).json(receipt);
+  });
   app.get("/api/tasks/:id", (req, res) => {
-    const d = store.detail(req.params.id);
+    const seqAfter = z.coerce
+      .number()
+      .int()
+      .nonnegative()
+      .default(0)
+      .parse(req.query.seqAfter);
+    const d = store.detail(req.params.id, seqAfter);
     if (!d) throw new AppError(404, "任务不存在");
     res.json(d);
   });
@@ -289,15 +307,51 @@ export function createPlatform(config: Config) {
     });
   });
   app.post("/api/tasks/:id/cancel", (req, res) => {
-    service.cancel(req.params.id);
-    res.json({ ok: true });
+    const taskId = req.params.id;
+    res.json(
+      taskExchange(
+        store,
+        store.taskMessageScope(taskId),
+        "publisher",
+        "cancel",
+        { taskId },
+        () => {
+          service.cancel(taskId);
+          return { ok: true };
+        },
+      ),
+    );
   });
-  app.post("/api/tasks/:id/retry", (req, res) =>
-    res.json(service.retry(req.params.id)),
-  );
+  app.post("/api/tasks/:id/retry", (req, res) => {
+    const taskId = req.params.id;
+    res.json(
+      taskExchange(
+        store,
+        store.taskMessageScope(taskId),
+        "publisher",
+        "retry",
+        { taskId },
+        () => service.retry(taskId),
+      ),
+    );
+  });
   app.post("/api/approvals/:id/decision", (req, res) => {
-    service.decide(req.params.id, decisionSchema.parse(req.body));
-    res.json({ ok: true });
+    const approvalId = req.params.id;
+    const decision = decisionSchema.parse(req.body);
+    const approval = store.approval(approvalId);
+    res.json(
+      taskExchange(
+        store,
+        approval && store.runMessageScope(approval.runId),
+        "publisher",
+        "approval.decision",
+        { approvalId, ...decision },
+        () => {
+          service.decide(approvalId, decision);
+          return { ok: true };
+        },
+      ),
+    );
   });
   app.use("/subscriber", (req, res, next) => {
     if (
@@ -326,6 +380,15 @@ export function createPlatform(config: Config) {
         ? () => service.resultStatus(subscription)
         : () => service.approvalSnapshot(subscription);
     snapshot();
+    const taskId = subscription.taskId;
+    taskMessage(
+      store,
+      store.taskMessageScope(taskId),
+      "publisher",
+      "receive",
+      "subscribe",
+      { view },
+    );
     if (taskSubscriberCount >= LIMITS.subscribers)
       throw new AppError(429, "任务订阅数量超限");
     taskSubscriberCount++;
@@ -343,22 +406,46 @@ export function createPlatform(config: Config) {
     const write = (frame: string) => {
       blocked = !res.write(frame);
     };
-    const send = () => {
-      if (res.writableEnded || blocked) return;
-      const data = JSON.stringify(snapshot());
+    const sendSnapshot = () => {
+      if (res.writableEnded || res.destroyed || blocked) return;
+      const current = snapshot();
+      const data = JSON.stringify(current);
       if (data !== previous) {
         previous = data;
         const event = view === "result" ? "task.status" : "approval.snapshot";
+        taskMessage(
+          store,
+          store.taskMessageScope(taskId),
+          "publisher",
+          "send",
+          event,
+          current,
+        );
         write(`event: ${event}\ndata: ${data}\n\n`);
       }
       if (view !== "result" || blocked) return;
       for (const event of service.resultEvents(subscription.taskId)) {
         if (sent.has(event.eventId)) continue;
         sent.add(event.eventId);
+        taskMessage(
+          store,
+          store.runMessageScope(event.runId),
+          "publisher",
+          "send",
+          "task.completed",
+          event,
+        );
         write(
           `id: ${event.eventId}\nevent: task.completed\ndata: ${JSON.stringify(event)}\n\n`,
         );
         if (blocked) break;
+      }
+    };
+    const send = () => {
+      try {
+        sendSnapshot();
+      } catch {
+        stop();
       }
     };
     const drain = () => {
@@ -381,9 +468,27 @@ export function createPlatform(config: Config) {
     // Subscribe before reading the persisted snapshot and finished runs.
     send();
   });
+  function subscriberDecision(input: z.infer<typeof subscriberDecisionSchema>) {
+    service.requireSubscriber(input);
+    const approval = store.approval(input.approvalId);
+    const scope =
+      approval?.taskId === input.taskId
+        ? store.runMessageScope(approval.runId)
+        : store.taskMessageScope(input.taskId);
+    return taskExchange(
+      store,
+      scope,
+      "publisher",
+      "approval.decision",
+      input,
+      () => {
+        service.decideSubscriber(input);
+        return { ok: true };
+      },
+    );
+  }
   app.post("/subscriber/decision", (req, res) => {
-    service.decideSubscriber(subscriberDecisionSchema.parse(req.body));
-    res.json({ ok: true });
+    res.json(subscriberDecision(subscriberDecisionSchema.parse(req.body)));
   });
   app.use("/subscriber", (_req, res) =>
     res.status(404).json({ error: "审批订阅接口不存在" }),
@@ -436,7 +541,8 @@ export function createPlatform(config: Config) {
     res.setTimeout(0);
     res.flushHeaders();
     const send = (event: DeliveryEvent) => {
-      if (closed || event.id <= cursor) return;
+      if (closed || res.destroyed || res.writableEnded || event.id <= cursor)
+        return;
       cursor = event.id;
       const target = store.task(event.taskId)?.targetHarness;
       if (
@@ -445,10 +551,24 @@ export function createPlatform(config: Config) {
         target.toLowerCase() !== identity.harnessName.toLowerCase()
       )
         return;
-      const writable = res.write(
-        `id: ${event.id}\nevent: task.available\ndata: ${JSON.stringify(event)}\n\n`,
-      );
-      if (!writable) res.end();
+      try {
+        const delivery = store.deliveryTurn(event.id);
+        if (delivery?.taskTurn !== undefined)
+          taskMessage(
+            store,
+            { taskId: event.taskId, taskTurn: delivery.taskTurn },
+            "executor",
+            "send",
+            "task.available",
+            event,
+          );
+        const writable = res.write(
+          `id: ${event.id}\nevent: task.available\ndata: ${JSON.stringify(event)}\n\n`,
+        );
+        if (!writable) res.end();
+      } catch {
+        res.end();
+      }
     };
     const stop = () => res.end();
     const heartbeat = setInterval(() => {
@@ -480,33 +600,82 @@ export function createPlatform(config: Config) {
     res.json({ accepted: true });
   });
   app.post("/connector/claim", (req, res) => {
-    const { taskId, generation, ...owner } = claimTaskSchema
+    const { taskId, generation, deliveryId, ...owner } = claimTaskSchema
       .extend({ generation: z.uuid().optional() })
       .parse(req.body);
-    res.json(service.claim(taskId, owner, generation));
-  });
-  app.post("/connector/runs/:id/heartbeat", (req, res) =>
-    res.json(service.heartbeat(req.params.id, ownerSchema.parse(req.body))),
-  );
-  app.post("/connector/runs/:id/report", (req, res) => {
-    const body = reportSchema.parse(req.body);
-    res.json(service.report(req.params.id, body, body.seq, body.update));
-  });
-  app.post("/connector/runs/:id/permissions", (req, res) => {
-    const body = permissionSubmissionSchema.parse(req.body);
+    const scope = service.claimMessageScope(
+      taskId,
+      owner,
+      generation,
+      deliveryId,
+    );
     res.json(
-      service.permission(req.params.id, body, body.requestId, body.request),
+      taskExchange(
+        store,
+        scope,
+        "executor",
+        "claim",
+        { taskId, deliveryId },
+        () => service.claim(taskId, owner, generation, deliveryId),
+      ),
     );
   });
-  app.post("/connector/runs/:id/permissions/:approvalId/result", (req, res) =>
+  app.post("/connector/runs/:id/heartbeat", (req, res) => {
+    const runId = req.params.id;
+    const owner = ownerSchema.parse(req.body);
     res.json(
-      service.permissionResult(
-        req.params.id,
-        ownerSchema.parse(req.body),
-        req.params.approvalId,
+      taskExchange(
+        store,
+        service.runMessageScope(runId, owner),
+        "executor",
+        "heartbeat",
+        { runId },
+        () => service.heartbeat(runId, owner),
       ),
-    ),
-  );
+    );
+  });
+  app.post("/connector/runs/:id/report", (req, res) => {
+    const runId = req.params.id;
+    const body = reportSchema.parse(req.body);
+    res.json(
+      taskExchange(
+        store,
+        service.runMessageScope(runId, body),
+        "executor",
+        "report",
+        { runId, reportSeq: body.seq, update: body.update },
+        () => service.report(runId, body, body.seq, body.update),
+      ),
+    );
+  });
+  app.post("/connector/runs/:id/permissions", (req, res) => {
+    const runId = req.params.id;
+    const body = permissionSubmissionSchema.parse(req.body);
+    res.json(
+      taskExchange(
+        store,
+        service.runMessageScope(runId, body),
+        "executor",
+        "permission",
+        { runId, requestId: body.requestId, request: body.request },
+        () => service.permission(runId, body, body.requestId, body.request),
+      ),
+    );
+  });
+  app.post("/connector/runs/:id/permissions/:approvalId/result", (req, res) => {
+    const { id: runId, approvalId } = req.params;
+    const owner = ownerSchema.parse(req.body);
+    res.json(
+      taskExchange(
+        store,
+        service.runMessageScope(runId, owner),
+        "executor",
+        "permission.result",
+        { runId, approvalId },
+        () => service.permissionResult(runId, owner, approvalId),
+      ),
+    );
+  });
   app.use("/connector", (_req, res) =>
     res.status(404).json({ error: "连接器接口不存在" }),
   );
@@ -517,8 +686,9 @@ export function createPlatform(config: Config) {
       {
         title: "发布任务",
         description:
+          taskCommandDescription +
           "发布任务并立即返回回执。resultSubscription 用于订阅执行结果。approvalTargets 默认 [subscriber]，也可 [] 由用户在明庭审批。订阅者审批沿用 approvalSubscription。",
-        inputSchema: publishTaskSchema,
+        inputSchema: mcpTaskCommandSchema,
         annotations: {
           readOnlyHint: false,
           destructiveHint: true,
@@ -527,18 +697,59 @@ export function createPlatform(config: Config) {
         },
       },
       async (input, extra) => {
+        let failedAppend: TaskMessageScope | undefined;
         try {
           const raw = extra._meta?.[publisherContextKey];
           if (raw !== undefined && !dshHost)
             throw new AppError(503, "明庭尚未配置 KMH 宿主");
           const publisher =
             raw === undefined ? undefined : dshHost?.publisher(req, raw);
-          const result = withTaskUrl(req, service.publish(input, publisher));
+          if (
+            input.action === "append" &&
+            input.taskId &&
+            publisher &&
+            service.isOriginalPublisher(input.taskId, publisher)
+          )
+            failedAppend = store.taskMessageScope(input.taskId);
+          const result = withTaskUrl(
+            req,
+            service.publishCommand(input, publisher),
+          );
+          const scope =
+            result.taskTurn === undefined
+              ? undefined
+              : { taskId: result.taskId, taskTurn: result.taskTurn };
+          taskMessage(
+            store,
+            scope,
+            "publisher",
+            "send",
+            input.action === "append" ? "append.response" : "new.response",
+            result,
+          );
           return {
             content: [{ type: "text", text: JSON.stringify(result) }],
             structuredContent: result,
           };
         } catch (e) {
+          if (failedAppend && e instanceof AppError) {
+            taskMessage(
+              store,
+              failedAppend,
+              "publisher",
+              "receive",
+              "append",
+              input,
+            );
+            taskMessage(
+              store,
+              failedAppend,
+              "publisher",
+              "send",
+              "append.response",
+              { error: e.message },
+            );
+          }
           return {
             isError: true,
             content: [
@@ -595,17 +806,41 @@ export function createPlatform(config: Config) {
         },
       },
       async (input, extra) => {
+        let scope: TaskMessageScope | undefined;
         try {
+          service.requireSubscriber(input);
+          scope = store.taskMessageScope(input.taskId);
+          taskMessage(store, scope, "publisher", "receive", "approval.wait", {
+            waitMs: input.waitMs,
+          });
           const result = await service.waitForApproval(
             input,
             input.waitMs,
             extra.signal,
+          );
+          taskMessage(
+            store,
+            scope,
+            "publisher",
+            "send",
+            "approval.wait.response",
+            result,
           );
           return {
             content: [{ type: "text", text: JSON.stringify(result) }],
             structuredContent: result,
           };
         } catch (error) {
+          taskMessage(
+            store,
+            scope,
+            "publisher",
+            "send",
+            "approval.wait.response",
+            {
+              error: error instanceof AppError ? error.message : "审批请求失败",
+            },
+          );
           return toolError(error);
         }
       },
@@ -626,8 +861,7 @@ export function createPlatform(config: Config) {
       },
       async (input) => {
         try {
-          service.decideSubscriber(input);
-          const result = { ok: true };
+          const result = subscriberDecision(input);
           return {
             content: [{ type: "text", text: JSON.stringify(result) }],
             structuredContent: result,
@@ -701,9 +935,17 @@ export function createPlatform(config: Config) {
       async (input) => {
         try {
           const { taskId, subscriptionToken, ...ack } = input;
-          const result = service.acknowledgeWakeup(
-            { taskId, subscriptionToken },
+          const subscription = { taskId, subscriptionToken };
+          const event = service
+            .taskWakeups(subscription)
+            .events.find((event) => event.id === ack.eventId);
+          const result = taskExchange(
+            store,
+            event && store.runMessageScope(event.runId),
+            "publisher",
+            "wakeup.ack",
             ack,
+            () => service.acknowledgeWakeup(subscription, ack),
           );
           return {
             content: [{ type: "text", text: JSON.stringify(result) }],
