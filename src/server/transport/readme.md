@@ -16,7 +16,12 @@
 
 ## 代码说明
 
-- [http.ts](http.ts) 的 [createPlatform(config)](http.ts#L48) 创建数据库、任务服务和 Express 应用，返回 `app`、`service`、`store`，方便启动入口和测试共同使用。它按入口注册浏览器会话与防伪校验、任务 API、订阅者事件流、连接器领任务与回报接口、MCP 工具及静态页面。网页发布和 MCP 发布在各自的入口校验后交给同一个 `TaskService.publish()`。事件流按各自的凭据和游标发送当前状态或历史事件。[网页任务 API](http.ts#L159) · [订阅者事件流](http.ts#L304) · [连接器事件流](http.ts#L394) · [MCP 工具注册](http.ts#L506)
+- [http.ts](http.ts) 的 [createPlatform(config)](http.ts#L26) 创建数据库、任务服务和 Express 应用，挂载各路由和全局中间件，返回 `app`、`service`、`store` 供启动入口和测试使用。
+- [mcp.ts](mcp.ts) 提供普通 MCP 入口，处理新建和追加任务、在线执行器查询、审批及唤醒工具。发单规则由 `TaskService` 维护，审批决定与订阅 HTTP 入口共用 [decision.ts](subscriber/decision.ts)。
+- [browser-api](browser-api/) 提供网页任务 API。[router.ts](browser-api/router.ts) 注册任务和审批接口，[session.ts](browser-api/session.ts) 管理会话和 CSRF，[events.ts](browser-api/events.ts) 合并变更并推送网页快照。
+- [subscriber](subscriber/) 提供发起方的 HTTP 接口。[router.ts](subscriber/router.ts) 校验任务订阅令牌，推送审批或结果状态，补发已完成事件，并接收订阅者的审批决定。
+- [connector.ts](connector.ts) 提供执行器接口，按游标重放待领取任务，并处理认领、租约心跳、进度与结果回报和工具审批。
+- [http-middleware.ts](http-middleware.ts) 处理全局请求防护与错误响应。[web-assets.ts](web-assets.ts) 提供网页和审批回归报告资源。
 - [dsh-wakeup.ts](dsh-wakeup.ts) 的 [configuredDshWakeupHost(env)](dsh-wakeup.ts#L22) 读取可选宿主配置与密钥文件。[dshWakeupRouter(service, config)](dsh-wakeup.ts#L34) 校验宿主身份，挂载兼容发布、完成事件流和确认接口。它为当前宿主推送待确认记录，收到确认后交给任务服务核对事件和会话归属。宿主重新连接时可继续接收待确认记录。
 
 ## spec 索引

@@ -198,9 +198,7 @@ test("publish, list three required fields, inspect permission and approve in bro
     .click();
   await expect(dialog.locator(".status")).toHaveText("已完成");
   await expect(
-    dialog
-      .locator(".result")
-      .getByText("selected:allow-once", { exact: false }),
+    dialog.locator(".answer-output").filter({ hasText: "selected:allow-once" }),
   ).toBeVisible();
   await dialog.getByRole("button", { name: "关闭任务详情" }).click();
   const row = page.getByRole("button", { name: "查看任务：" + title });
@@ -440,7 +438,7 @@ test("browser reject decision and cancellation with explicit retry", async ({
     .getByRole("button", { name: "拒绝", exact: true })
     .click();
   await expect(
-    d.locator(".result").getByText("selected:reject-once", { exact: false }),
+    d.locator(".answer-output").filter({ hasText: "selected:reject-once" }),
   ).toBeVisible();
   await expect(d.locator(".status")).toHaveText("已完成");
   await d.getByRole("button", { name: "关闭任务详情" }).click();
