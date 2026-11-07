@@ -18,6 +18,7 @@ import type {
   TaskExecutor,
 } from "../server/harness/acp/acp-adapter.js";
 import { subscribe, post, localBase, HttpError } from "./transport.js";
+/** 订阅本机任务通知，串行领取和执行，并将过程、审批和结果接回明庭。 */
 export class TaskConnector {
   readonly ownerId = randomUUID();
   private stop = new AbortController();
@@ -25,6 +26,7 @@ export class TaskConnector {
   private runAbort?: AbortController;
   private loop?: Promise<void>;
   private pumping?: Promise<void>;
+  // 同一任务的不同轮次各有领取事件，按事件 ID 排队并为每项保留重试用的领取 ID。
   private pending = new Map<number, { taskId: string; claimId: string }>();
   private cursor = 0;
   private generation?: string;
@@ -32,6 +34,7 @@ export class TaskConnector {
   private probeAbort?: AbortController;
   private probed = false;
   readonly received: DeliveryEvent[] = [];
+  /** 绑定本机平台、执行器和订阅身份，可选回调观察事件，筛选器限制可领取任务。 */
   constructor(
     private base: string,
     private adapter: TaskExecutor,
@@ -41,13 +44,16 @@ export class TaskConnector {
   ) {
     this.base = localBase(base);
   }
+  /** 启动后台订阅循环，重复调用沿用已有循环。 */
   start() {
     if (this.loop) return;
     this.loop = this.listen();
   }
+  /** 断开当前订阅，由监听循环按原游标重连，运行继续通过独立心跳保活。 */
   reconnect() {
     this.connection?.abort();
   }
+  /** 持续接收和补收任务通知，记录游标，并把可领取的事件交给处理循环。 */
   private async listen() {
     while (!this.stop.signal.aborted) {
       this.connection = new AbortController();
@@ -59,6 +65,7 @@ export class TaskConnector {
           AbortSignal.any([this.stop.signal, this.connection.signal]),
           { ownerId: this.ownerId, harnessName: this.harnessName, generation },
           () => {
+            // 每次订阅使用新代次，后续领取和能力上报关联本次连接。
             this.generation = generation;
             this.probed = false;
             if (this.pending.size) this.kick();
@@ -90,6 +97,7 @@ export class TaskConnector {
         }).catch(() => {});
     }
   }
+  /** 空闲时发现执行器提供的模型与档位，将快照绑定到当前订阅代次。 */
   private maybeProbe() {
     if (
       !isAuditedHarness(this.harnessName) ||
@@ -118,6 +126,7 @@ export class TaskConnector {
       })
       .catch(() => {})
       .finally(() => {
+        // 同一代次中，完成或失败的探测记为已尝试。被取消的探测可在空闲时再跑。
         if (generation === this.generation && !abort.signal.aborted)
           this.probed = true;
         this.probe = undefined;
@@ -125,6 +134,7 @@ export class TaskConnector {
         this.maybeProbe();
       });
   }
+  /** 在线时唤起唯一的领取循环，有任务时优先发出取消能力探测的信号。 */
   private kick() {
     if (
       this.pumping ||
@@ -140,6 +150,7 @@ export class TaskConnector {
       else this.maybeProbe();
     });
   }
+  /** 按入队顺序领取任务，等当前运行结束后再处理下一条。 */
   private async pump() {
     while (
       this.pending.size &&
@@ -167,6 +178,7 @@ export class TaskConnector {
           ),
         );
       } catch (e) {
+        // 任务缺失或事件过期时移出队列，其余错误保留原领取 ID 并延时重试。
         if (e instanceof HttpError && [404, 410].includes(e.status)) {
           this.pending.delete(deliveryId);
           continue;
@@ -180,6 +192,7 @@ export class TaskConnector {
       await this.execute(claim);
     }
   }
+  /** 为已领取的运行维护租约，驱动执行器，并回报进度、审批和终态。 */
   private async execute(claim: Claim) {
     const abort = new AbortController();
     this.runAbort = abort;
@@ -189,6 +202,7 @@ export class TaskConnector {
     let reports = Promise.resolve();
     let heartbeatBusy = false;
     let cancelled = false;
+    /** 为回报分配本次运行的序号，依次等待平台确认，失败或积压超限时中止执行。 */
     const enqueue = (update: ConnectorUpdate) => {
       if (++queued > LIMITS.pendingReports) {
         abort.abort(new Error("状态回传积压"));
@@ -212,6 +226,7 @@ export class TaskConnector {
               abort.signal.aborted
             )
               throw error;
+            // 设置回执遇到非 HTTP 状态错误时，用原序号再发一次，服务端可识别已提交的回执。
             await post(this.base, path, body);
           }
         } catch (e) {
@@ -224,6 +239,7 @@ export class TaskConnector {
       void reports.catch(() => {});
       return reports;
     };
+    /** 定期续期本次运行的领取租约，同时接收平台取消指令。 */
     const heartbeat = async () => {
       if (heartbeatBusy) return;
       heartbeatBusy = true;
@@ -250,6 +266,7 @@ export class TaskConnector {
       () => abort.abort(new Error("执行超时")),
       LIMITS.runMs,
     );
+    /** 将连接器停止信号转为当前执行的取消信号。 */
     const stop = () => abort.abort(new Error("连接器停止"));
     this.stop.signal.addEventListener("abort", stop, { once: true });
     let status: "succeeded" | "failed" | "cancelled" | "interrupted" = "failed",
@@ -259,6 +276,7 @@ export class TaskConnector {
     try {
       await heartbeat();
       abort.signal.throwIfAborted();
+      // 平台和执行器对工作区及演示模式达成一致后才启动本次 ACP 执行。
       if (
         claim.workspace !== this.adapter.workspace ||
         claim.mode !== this.adapter.mode
@@ -266,12 +284,14 @@ export class TaskConnector {
         throw new Error("连接器与平台固定工作区或演示模式不一致，未启动 ACP");
       const text = `${claim.task.title}\n\n${claim.task.description}`;
       const hooks: RunHooks = {
+        // 会话、初始化信息、流式通知和上下文观测共用同一条回报队列。
         session: (sessionId) => enqueue({ type: "session", sessionId }),
         discovery: (discovery) => enqueue({ type: "discovery", discovery }),
         update: (notification) =>
           enqueue({ type: "notification", notification }),
         context: (sessionId, observation) =>
           enqueue({ type: "context", sessionId, observation }),
+        /** 先等已排队回报提交，再登记审批并轮询平台裁决，将原始选项交回 ACP。 */
         permission: async (
           requestId,
           request,
@@ -316,6 +336,7 @@ export class TaskConnector {
           abort.signal,
           hooks,
           claim.task.requestedSettings,
+          // 适配器等设置回执提交后才发送任务正文。
           (sessionId, receipt) =>
             enqueue({ type: "settings", sessionId, receipt }),
         );
@@ -361,6 +382,7 @@ export class TaskConnector {
       clearTimeout(runTimeout);
       this.stop.signal.removeEventListener("abort", stop);
       await reports.catch(() => {});
+      // 尽力用下一个序号提交终态。平台未收到终态时，按租约到期处理。
       try {
         await post(this.base, `/connector/runs/${claim.run.id}/report`, {
           ...owner,
@@ -371,6 +393,7 @@ export class TaskConnector {
       this.runAbort = undefined;
     }
   }
+  /** 中止订阅、执行与能力探测，等已启动的后台流程退出。 */
   async close() {
     this.stop.abort();
     this.connection?.abort();

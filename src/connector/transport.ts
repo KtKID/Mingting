@@ -4,6 +4,7 @@ import {
   LIMITS,
   type HarnessIdentity,
 } from "../shared/protocol.js";
+/** 校验本机 HTTP 根地址，返回可直接拼接接口路径的 origin。 */
 export function localBase(value: string) {
   const u = new URL(value);
   if (
@@ -19,6 +20,7 @@ export function localBase(value: string) {
   return u.origin;
 }
 export class HttpError extends Error {
+  /** 保留响应状态码，方便调用方区分过期领取和可重试的请求故障。 */
   constructor(
     public status: number,
     message: string,
@@ -26,6 +28,7 @@ export class HttpError extends Error {
     super(message);
   }
 }
+/** 向已校验的地址发送 JSON，合并调用方取消信号和单次请求超时。 */
 export async function post<T>(
   base: string,
   path: string,
@@ -44,6 +47,7 @@ export async function post<T>(
   if (!r.ok) throw new HttpError(r.status, value.error ?? "连接器请求失败");
   return value as T;
 }
+/** 从上次收到的事件 ID 继续订阅，逐条交出校验通过的任务通知。 */
 export async function* subscribe(
   base: string,
   after: number,
@@ -72,6 +76,7 @@ export async function* subscribe(
   const decoder = new TextDecoder();
   let buffered = "";
   try {
+    // 响应头到达后即可标记本次连接就绪，随后再读历史和实时事件。
     onConnected?.();
     while (true) {
       const next = await reader.read();
@@ -80,6 +85,7 @@ export async function* subscribe(
       if (buffered.length > LIMITS.httpBytes)
         throw new Error("订阅事件内容超限");
       let split;
+      // 网络分块可能截断一条事件，等到空行再解析完整事件帧。
       while ((split = buffered.indexOf("\n\n")) >= 0) {
         const frame = buffered.slice(0, split);
         buffered = buffered.slice(split + 2);
@@ -88,6 +94,7 @@ export async function* subscribe(
           .filter((l) => l.startsWith("data:"))
           .map((l) => l.slice(5).trimStart())
           .join("\n");
+        // 保活等注释帧没有 data，直接跳过。
         if (!data) continue;
         const event = deliveryEventSchema.parse(JSON.parse(data));
         const eventId = frame
