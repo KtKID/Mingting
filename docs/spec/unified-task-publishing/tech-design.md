@@ -15,7 +15,7 @@
 
 ## 整体结构与数据归属
 
-明庭按订阅者、执行者和被唤醒者描述任务角色。现有 MCP 的 `wakeup` 按 UUID 校验，并由已配置的聊天宿主处理。KMH 网页默认会话 ID 可带 `session-` 前缀，发单轮次为整数，现有 KMH 宿主协议已经支持这两种原生值。统一链路要把 KMH 的会话绑定接到标准 MCP 发布，并补齐独立于审批的结果订阅。见[发布校验](../../../src/server/tasks/service.ts#L208)、[审批快照](../../../src/server/tasks/service.ts#L369)和[KMH 宿主协议](../../../src/shared/dsh-wakeup.ts)。
+明庭按订阅者、执行者和被唤醒者描述任务角色。现有 MCP 的 `wakeup` 按 UUID 校验，并由已配置的聊天宿主处理。KMH 网页默认会话 ID 可带 `session-` 前缀，发单轮次为整数，现有 KMH 宿主协议已经支持这两种原生值。统一链路要把 KMH 的会话绑定接到标准 MCP 发布，并补齐独立于审批的结果订阅。见[发布校验](../../../src/server/tasks/publication.ts#L209)、[审批快照](../../../src/server/tasks/publisher-subscriptions.ts#L62)和[KMH 宿主协议](../../../src/shared/dsh-wakeup.ts)。
 
 ```mermaid
 sequenceDiagram

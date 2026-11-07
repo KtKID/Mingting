@@ -12,27 +12,23 @@
 
 ## 使用方式
 
-接口层从 [createPlatform(config)](../transport/http.ts#L48) 取得 `service`。例如调用 `service.publish(input)`，传入符合 [任务发布定义](../../shared/protocol.ts) 的任务内容，取得任务和订阅回执。连接器通过 [HTTP 接口](../transport/readme.md) 领取并回报，网页通过同一服务取消、重试和裁决审批。测试入口见 [平台集成测试](../../../tests/platform.test.ts)。
+接口层从 [createPlatform(config)](../transport/http.ts#L26) 取得 `service`。例如调用 `service.publish(input)`，传入符合 [任务发布定义](../../shared/protocol.ts) 的任务内容，取得任务和订阅回执。连接器通过 [HTTP 接口](../transport/readme.md) 领取并回报，网页通过同一服务取消、重试和裁决审批。测试入口见 [平台集成测试](../../../tests/platform.test.ts)。
 
 ## 代码说明
 
-### [service.ts](service.ts)
+[TaskService](service.ts) 是网页、MCP 和连接器共用的入口，负责组装模块、广播事件和服务启停。[sweep()](service.ts#L253) 依次检查租约、执行时限、审批时限和用户优先窗口。运行结束时，任务状态、运行状态和待审记录在同一事务内更新。
 
-`TaskService` 负责业务规则和事务边界，`AppError` 把业务拒绝的状态和原因交给接口层。
+| 模块 | 负责的规则 |
+| --- | --- |
+| [publication.ts](publication.ts) | 校验新建与追加，保存轮次、订阅凭据、发布来源和领取事件。旧 DSH 发单在这里保留独立的兼容入口。成功提交后通知连接器。 |
+| [harness-registry.ts](harness-registry.ts) | 记录在线执行器、连接代次和能力快照。领取时校验身份是否符合任务指定的执行器。 |
+| [runs.ts](runs.ts) | 领取、续期、回报、取消、同轮重试和运行收尾。领取事件绑定任务轮次，回报按单次运行的序号处理。 |
+| [approvals.ts](approvals.ts) | 受理审批请求、读取和提交裁决、处理超时与过期。订阅者先给出意见时，网页用户在优先窗口内可直接裁决。 |
+| [publisher-subscriptions.ts](publisher-subscriptions.ts) | 分别校验结果和审批订阅凭据，提供结果重放、待审快照和限时等待。 |
+| [wakeup/receipts.ts](../wakeup/receipts.ts) | 查询 Codex 聊天唤醒状态，分别校验 DSH 宿主和 Codex 聊天回执。 |
+| [progress.ts](progress.ts) | 将运行通知整理为正文、公开思考和工具进度，按工具调用 ID 合并增量，裁剪展示内容并遮盖常见凭据字段。 |
 
-| 方法                                                                                                                                              | 处理过程与结果                                                                                           |
-| ------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| [publish()](service.ts#L198)、[publishFromDsh()](service.ts#L144)                                                                                 | 校验内容和唤醒目标，保存排队任务、订阅凭据与通知；宿主发布用请求标识核对重放，并检查已有任务的请求内容。 |
-| [registerHarness()](service.ts#L66)、[reportCapabilities()](service.ts#L95)、[harnesses()](service.ts#L106)                                       | 登记在线连接，按连接代次接受模型能力快照，返回当前在线身份及可用选项。                                   |
-| [claim()](service.ts#L428)、[heartbeat()](service.ts#L517)、[report()](service.ts#L535)                                                           | 检查目标和执行资格后开始运行，心跳续期。回报按顺序写入设置、进度、用量和终态，接受原序号重送并拒绝跳号。 |
-| [permission()](service.ts#L652)、[permissionResult()](service.ts#L709)、[decide()](service.ts#L750)、[decideSubscriber()](service.ts#L756)        | 创建审批并查询裁决。订阅者先决定时等待用户窗口，网页用户的及时裁决优先。                                 |
-| [approvalSnapshot()](service.ts#L369)、[waitForApproval()](service.ts#L383)、[resultStatus()](service.ts#L280)、[resultEvents()](service.ts#L292) | 按任务凭据读取待审状态、等待更新或补读已结束的运行结果。                                                 |
-| [acknowledgeDshWakeup()](service.ts#L175)、[acknowledgeWakeup()](service.ts#L320)                                                                 | 核对宿主、会话或订阅凭据与通知归属，保存确认后的投递状态。                                               |
-| [cancel()](service.ts#L810)、[retry()](service.ts#L827)、[sweep()](service.ts#L849)、[close()](service.ts#L899)                                   | 处理取消、显式重试、过期租约和审批窗口。停止时清理定时器和唤醒投递，持久化原运行的中断状态。             |
-
-### [progress.ts](progress.ts)
-
-[applyProgress(run, notification)](progress.ts#L8) 按通知类型更新正文、公开思考和工具状态。它按工具调用 ID 合并增量，裁剪显示内容，并遮盖结构化内容中的常见凭据字段，给网页提供当前运行快照。需长期核对的工具事件由任务服务另存审计记录。 [回报写入](service.ts#L535)
+传输层把实际收发交给存储层，由存储层分配任务内的下一个 `seq`。[taskMessage()](../transport/task-communication.ts#L7) · [taskExchange()](../transport/task-communication.ts#L21) · [Store.communication()](../storage/store.ts#L232)
 
 ## spec 索引
 

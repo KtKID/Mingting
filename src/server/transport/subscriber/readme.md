@@ -21,7 +21,7 @@ curl -N -H "Authorization: Bearer $SUBSCRIPTION_TOKEN" \
   "http://127.0.0.1:60390/subscriber/events?taskId=$TASK_ID&view=result"
 ```
 
-连接后先收到 `task.status`，包含任务编号和当前状态。每次已结束的运行各发一条 `task.completed`，包含运行编号、结束状态、已保存的输出或错误。未领取就取消的任务通过状态帧报告。SSE 是服务器在同一条 HTTP 连接上持续推送消息，示例会持续等待新事件。 [订阅入口](router.ts#L26) · [结果字段](../../tasks/service.ts#L448)
+连接后先收到 `task.status`，包含任务编号和当前状态。每次已结束的运行各发一条 `task.completed`，包含运行编号、结束状态、已保存的输出或错误。未领取就取消的任务通过状态帧报告。SSE 是服务器在同一条 HTTP 连接上持续推送消息，示例会持续等待新事件。 [订阅入口](router.ts#L26) · [结果字段](../../tasks/publisher-subscriptions.ts#L34)
 
 接收审批时，用回执中的 `approvalSubscription` 建立连接，查询参数改用 `view=approval`，也可省略 `view`。收到的 `approval.snapshot` 包含当前运行仍待处理的审批。使用 `POST /subscriber/decision` 时，在 JSON 请求体里带上 `taskId`、`subscriptionToken`、`approvalId`、`runId`、`sessionId` 和原始 `optionId`。也可以把同一组字段交给 MCP 工具 `submit_approval_decision`。 [审批接口](../../../../docs/APPROVALS.md#a1-任务发起方与审批对象) · [字段定义](../../../shared/protocol.ts#L394)
 
@@ -48,7 +48,7 @@ HTTP 订阅供可信本机客户端使用，带浏览器来源标记的请求会
 
 `subscriberDecision(service, input)` 接收已通过格式校验的凭据和意见，先确认发起方有审批权限，再找出审批所属运行和任务轮次。它记录可归属的请求与回应，把保存意见交给 `TaskService.decideSubscriber()`。两个入口共用这个函数，所以审批规则和通信记录走同一条路径。 [源码](decision.ts#L7) · [MCP 调用](../mcp.ts#L201) · [通信记录](../task-communication.ts#L23)
 
-返回 `{ ok: true }` 表示发起方意见已受理。首次有效意见开启 10 秒的网页用户优先窗口。窗口内提交同一意见会沿用原截止时间，改选项或审批已经结束时会拒绝。最终结果由任务服务按用户决定或超时规则裁决。 [任务服务](../../tasks/service.ts#L1019) · [裁决规则](../../../../docs/APPROVALS.md#a3-用户优先与十秒窗口)
+返回 `{ ok: true }` 表示发起方意见已受理。首次有效意见开启 10 秒的网页用户优先窗口。窗口内提交同一意见会沿用原截止时间，改选项或审批已经结束时会拒绝。最终结果由任务服务按用户决定或超时规则裁决。 [任务服务](../../tasks/approvals.ts#L149) · [裁决规则](../../../../docs/APPROVALS.md#a3-用户优先与十秒窗口)
 
 ## spec 索引
 
@@ -61,4 +61,4 @@ HTTP 订阅供可信本机客户端使用，带浏览器来源标记的请求会
 
 ## 待实现
 
-新增任务的凭据由新表统一核验已列入待办。当前代码分别查结果和审批凭据表，启用订阅者审批的新任务会把同一令牌的哈希写入两张表。 [待办](../../../../TODO.md#订阅凭据) · [设计原文](../../../../docs/spec/unified-task-publishing/tech-design.md#publish) · [凭据写入](../../tasks/service.ts#L418) · [结果校验](../../tasks/service.ts#L449) · [审批校验](../../tasks/service.ts#L537)
+新增任务的凭据由新表统一核验已列入待办。当前代码分别查结果和审批凭据表，启用订阅者审批的新任务会把同一令牌的哈希写入两张表。 [待办](../../../../TODO.md#订阅凭据) · [设计原文](../../../../docs/spec/unified-task-publishing/tech-design.md#publish) · [凭据写入](../../tasks/publication.ts#L266) · [结果校验](../../tasks/publisher-subscriptions.ts#L21) · [审批校验](../../tasks/publisher-subscriptions.ts#L48)

@@ -18,7 +18,7 @@
 
 **`@agentclientprotocol/codex-acp` 是相对于 OpenAI 的第三方适配器，由 Agent Client Protocol 项目组织维护。底层 `codex app-server` 是 OpenAI 官方实现。** ACP 项目文档把 Codex 列为通过 ACP 项目适配器接入。明庭的 `runtime()` 已经启动本机安装的 2.5.0 包入口，使用 ACP v1 stdio 和项目内的账号配置。 [ACP 的 Codex 条目](https://agentclientprotocol.com/get-started/agents) · [2.5.0 发布](https://github.com/agentclientprotocol/codex-acp/releases/tag/v2.5.0) · [OpenAI App Server](https://developers.openai.com/codex/app-server) · [明庭运行入口](../../../src/server/harness/runtime.ts#L151)
 
-当前适配器负责会话、流、权限与清理。普通任务建会话后只设置固定安全模式，prompt 完成时只向连接器返回 `stopReason`。服务已按租约和顺序号提交运行状态。工具更新及上下文通知进入近期事件，网页主要显示当前 run。设计在这条已有路径上增加确认和持久记录。 [当前适配器](../../../src/server/harness/acp/acp-adapter.ts#L112) · [回报事务](../../../src/server/tasks/service.ts#L535) · [事件留存](../../../src/server/storage/store.ts#L400)
+当前适配器负责会话、流、权限与清理。普通任务建会话后只设置固定安全模式，prompt 完成时只向连接器返回 `stopReason`。服务已按租约和顺序号提交运行状态。工具更新及上下文通知进入近期事件，网页主要显示当前 run。设计在这条已有路径上增加确认和持久记录。 [当前适配器](../../../src/server/harness/acp/acp-adapter.ts#L112) · [回报事务](../../../src/server/tasks/runs.ts#L187) · [事件留存](../../../src/server/storage/store.ts#L400)
 
 <a id="boundary"></a>
 
