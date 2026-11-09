@@ -28,18 +28,26 @@ import {
 } from "../../shared/protocol.js";
 import type { SessionNotification } from "@agentclientprotocol/sdk";
 import {
-  dshWakeupEventSchema,
-  dshWakeupTargetSchema,
-  type DshWakeupEvent,
-  type DshWakeupTarget,
+  hostWakeupEventSchema,
+  type HostWakeupEvent,
+  type HostWakeupTarget,
   wakeupEventSchema,
   wakeupTargetSchema,
   type WakeupEvent,
   type WakeupTarget,
 } from "../../shared/task-wakeup.js";
+import {
+  hostWakeupTargetSchema,
+  publisherTurnSchema,
+  type PublisherSource,
+} from "../../shared/host-wakeup.js";
 /** 生成用于持久化的 UTC 时间戳。 */
 const now = () => new Date().toISOString();
-const storedWakeupTargetSchema = wakeupTargetSchema.or(dshWakeupTargetSchema);
+const storedWakeupTargetSchema = wakeupTargetSchema.or(
+  hostWakeupTargetSchema
+    .extend({ originTurn: publisherTurnSchema.optional() })
+    .strip(),
+);
 
 const privateMessageFields =
   /^(authorization|cookie|csrf|claimId|publishRequestId|originTurnId|rawInput|rawOutput|(?:subscription|access|refresh|auth|bearer)?token)$|secret|password|api[_-]?key|private[_-]?key/i;
@@ -365,7 +373,10 @@ export class Store {
     this.changed();
   }
   /** 创建排队任务与首轮记录，保存唤醒绑定和发单通信。 */
-  publish(input: PublishTask, hostTarget?: DshWakeupTarget): Task {
+  publish(
+    input: PublishTask,
+    host?: { source: PublisherSource; wakeupTarget: HostWakeupTarget },
+  ): Task {
     const { wakeup, ...taskInput } = input;
     const t: Task = {
       ...taskInput,
@@ -377,28 +388,20 @@ export class Store {
       updatedAt: now(),
     };
     this.saveTask(t);
-    const target = hostTarget ?? wakeup;
     this.saveTurn({
       taskId: t.id,
       taskTurn: 1,
       description: t.description,
       status: t.status,
       createdAt: t.createdAt,
-      source: hostTarget
-        ? {
-            hostId: hostTarget.hostId,
-            publisherSessionId:
-              hostTarget.publisherSessionId ?? hostTarget.sessionId,
-            originTurn: hostTarget.originTurn,
-          }
-        : null,
-      wakeupTarget: target ?? null,
+      source: host?.source ?? null,
+      wakeupTarget: host?.wakeupTarget ?? wakeup ?? null,
     });
     this.communication(t.id, 1, "publisher", "mingting", "new", taskInput);
     return t;
   }
-  /** 按宿主和请求 ID 查找幂等发单记录及其指纹。 */
-  dshPublication(hostId: string, requestId: string) {
+  /** 按宿主和请求 ID 查找发单指纹，沿用历史表名以保留已有记录。 */
+  hostPublication(hostId: string, requestId: string) {
     const row = this.db
       .prepare(
         "SELECT task_id, fingerprint, task_turn FROM dsh_publish_requests WHERE host_id=? AND request_id=?",
@@ -413,7 +416,7 @@ export class Store {
       : undefined;
   }
   /** 记录宿主发单请求、内容指纹及对应任务轮次。 */
-  recordDshPublication(
+  recordHostPublication(
     hostId: string,
     requestId: string,
     fingerprint: string,
@@ -467,10 +470,16 @@ export class Store {
   browserWakeupSummary(taskId: string) {
     const binding = this.wakeupBinding(taskId);
     if (!binding) return;
-    const multipleTurns = (this.turn(taskId)?.taskTurn ?? 0) > 1;
+    const turn = this.turn(taskId);
+    const multipleTurns = (turn?.taskTurn ?? 0) > 1;
     const target =
       "sessionId" in binding
-        ? { sessionId: binding.sessionId, originTurn: binding.originTurn }
+        ? {
+            sessionId: binding.sessionId,
+            originTurn:
+              turn?.source?.originTurn ??
+              ("originTurn" in binding ? binding.originTurn : undefined),
+          }
         : { sessionId: binding.threadId, originTurn: binding.originTurnId };
     const events = this.db
       .prepare(
@@ -486,7 +495,7 @@ export class Store {
       );
     return browserWakeupSummarySchema.parse({ target, events });
   }
-  /** 按运行所属轮次的绑定创建待发送事件，用稳定 ID 去重，DSH 仅接收完成事件。 */
+  /** 按运行轮次保存待发送事件，外接宿主接收完成通知。 */
   private enqueueWakeup(
     type: WakeupEvent["type"],
     taskId: string,
@@ -495,8 +504,8 @@ export class Store {
   ) {
     const target = this.wakeupBinding(taskId, this.run(runId)?.taskTurn);
     if (!target) return;
-    const dshTarget = dshWakeupTargetSchema.safeParse(target);
-    if (dshTarget.success && type !== "task.completed") return;
+    const hostTarget = "hostId" in target;
+    if (hostTarget && type !== "task.completed") return;
     const record = {
       id: `${type}:${approvalId ?? runId}`,
       type,
@@ -513,8 +522,8 @@ export class Store {
       resumedTurnId: null,
       acknowledgedAt: null,
     };
-    const event = dshTarget.success
-      ? dshWakeupEventSchema.parse(record)
+    const event = hostTarget
+      ? hostWakeupEventSchema.parse(record)
       : wakeupEventSchema.parse(record);
     this.db
       .prepare("INSERT OR IGNORE INTO task_wakeup_events VALUES(?,?,?)")
@@ -558,31 +567,31 @@ export class Store {
       .run(JSON.stringify(valid), valid.id, valid.taskId);
     this.changed();
   }
-  /** 获取指定 DSH 宿主最早的一条待确认唤醒事件。 */
-  pendingDshWakeup(hostId: string) {
+  /** 获取指定宿主最早的一条待确认唤醒事件。 */
+  pendingHostWakeup(hostId: string) {
     const row = this.db
       .prepare(
         "SELECT data FROM task_wakeup_events WHERE json_extract(data,'$.target.hostId') IS NOT NULL AND json_extract(data,'$.target.hostId')=? AND json_extract(data,'$.status')='pending' ORDER BY rowid LIMIT 1",
       )
       .get(hostId);
     return row
-      ? dshWakeupEventSchema.parse(JSON.parse(String(row.data)))
+      ? hostWakeupEventSchema.parse(JSON.parse(String(row.data)))
       : undefined;
   }
-  /** 按事件 ID 和宿主 ID 查询 DSH 唤醒事件。 */
-  dshWakeup(eventId: string, hostId: string) {
+  /** 按事件 ID 和宿主 ID 查询唤醒事件。 */
+  hostWakeup(eventId: string, hostId: string) {
     const row = this.db
       .prepare(
         "SELECT data FROM task_wakeup_events WHERE id=? AND json_extract(data,'$.target.hostId')=?",
       )
       .get(eventId, hostId);
     return row
-      ? dshWakeupEventSchema.parse(JSON.parse(String(row.data)))
+      ? hostWakeupEventSchema.parse(JSON.parse(String(row.data)))
       : undefined;
   }
-  /** 校验并更新 DSH 唤醒事件。 */
-  saveDshWakeup(event: DshWakeupEvent) {
-    const valid = dshWakeupEventSchema.parse(event);
+  /** 校验并更新宿主唤醒事件。 */
+  saveHostWakeup(event: HostWakeupEvent) {
+    const valid = hostWakeupEventSchema.parse(event);
     this.db
       .prepare("UPDATE task_wakeup_events SET data=? WHERE id=?")
       .run(JSON.stringify(valid), valid.id);

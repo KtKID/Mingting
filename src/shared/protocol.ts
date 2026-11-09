@@ -2,12 +2,15 @@ import { z } from "zod";
 import { wakeupEventSchema, wakeupTargetSchema } from "./task-wakeup.js";
 import {
   appendTaskSchema,
-  dshTaskFields,
-  dshWakeupTargetSchema,
+  taskFields,
+  hostSessionIdSchema,
+  hostWakeupTargetSchema,
+  publisherSourceSchema,
+  publisherTurnSchema,
   resultReceiptSchema,
   resultSubscriptionSchema,
   terminalTaskStatuses,
-} from "./dsh-wakeup.js";
+} from "./host-wakeup.js";
 import type {
   InitializeResponse,
   RequestPermissionRequest,
@@ -49,7 +52,7 @@ export const LIMITS = Object.freeze({
   browserSubscribers: 8,
   browserFlushMs: 40,
 });
-export const harnessNameSchema = dshTaskFields.targetHarness.unwrap();
+export const harnessNameSchema = taskFields.targetHarness.unwrap();
 export const harnessSubscriptionSchema = z
   .object({
     ownerId: z.string().uuid(),
@@ -170,7 +173,7 @@ export type ContextObservation = z.infer<typeof contextObservationSchema>;
 
 const publishFieldsSchema = z
   .object({
-    ...dshTaskFields,
+    ...taskFields,
     requestedSettings: requestedSettingsSchema.optional(),
     approvalTargets: approvalTargetsSchema.optional(),
     wakeup: wakeupTargetSchema.optional(),
@@ -188,7 +191,7 @@ export const taskCommandSchema = z.union([
 export const mcpTaskCommandSchema = publishFieldsSchema.partial().extend({
   action: z.enum(["new", "append"]).optional(),
   taskId: appendTaskSchema.shape.taskId.optional(),
-  description: dshTaskFields.description,
+  description: taskFields.description,
 });
 export const taskStatusSchema = z.enum([
   "queued",
@@ -208,17 +211,13 @@ export const taskSchema = publishFieldsSchema.omit({ wakeup: true }).extend({
 export const taskTurnSchema = z.object({
   taskId: z.uuid(),
   taskTurn: z.int().positive(),
-  description: dshTaskFields.description,
+  description: taskFields.description,
   status: taskStatusSchema,
   createdAt: z.string(),
-  source: z
-    .object({
-      hostId: z.uuid(),
-      publisherSessionId: z.string().min(1).max(255),
-      originTurn: z.int().positive(),
-    })
+  source: publisherSourceSchema.nullable(),
+  wakeupTarget: wakeupTargetSchema
+    .or(hostWakeupTargetSchema.strip())
     .nullable(),
-  wakeupTarget: wakeupTargetSchema.or(dshWakeupTargetSchema).nullable(),
 });
 export const taskCommunicationSchema = z.object({
   taskId: z.uuid(),
@@ -350,11 +349,8 @@ export const detailSchema = z.object({
 });
 export const browserWakeupSummarySchema = z.object({
   target: z.object({
-    sessionId: dshWakeupTargetSchema.shape.sessionId,
-    originTurn: z.union([
-      dshWakeupTargetSchema.shape.originTurn,
-      wakeupTargetSchema.shape.originTurnId,
-    ]),
+    sessionId: hostSessionIdSchema,
+    originTurn: publisherTurnSchema.optional(),
   }),
   events: z.array(
     wakeupEventSchema.pick({ id: true, type: true, status: true }).extend({
@@ -389,7 +385,7 @@ export const approvalSubscriptionSchema = resultSubscriptionSchema;
 export const publishResultSchema = resultReceiptSchema.extend({
   approvalSubscription: approvalSubscriptionSchema.optional(),
   wakeup: wakeupTargetSchema.optional(),
-  wakeupTarget: dshWakeupTargetSchema.optional(),
+  wakeupTarget: hostWakeupTargetSchema.optional(),
 });
 export const subscriberDecisionSchema = approvalSubscriptionSchema
   .extend({

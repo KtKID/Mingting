@@ -32,16 +32,28 @@ Codex ACP 状态：平台事件持久化及 ACP 原会话恢复通过隔离验�
 
 ## 操作入口
 
-### 从 DSH Web 发布并唤醒发起会话
+### 通用宿主唤醒
 
-孔明 Web 宿主通过鉴权的本机事件流接收通知，并使用自身的 `session/prompt` 队列投递。固定孔明聊天和普通 Web 聊天共用 `mingting_publish`。工具从当前调用自动取得会话和轮次。
+在明庭设置 `MINGTING_WAKEUP_HOSTS_FILE` 指向本机 JSON 清单。每个宿主使用唯一的 UUID 和 64 字符小写十六进制令牌。令牌文件权限设为 `0600`，相对路径以清单目录为准。已有宿主迁移时沿用原 `hostId` 和令牌，继续接收旧事件和重试原请求。
 
-- 明庭设置 `MINGTING_DSH_HOST_ID` 和 `MINGTING_DSH_TOKEN_FILE`。宿主编号使用稳定 UUID，凭据文件存放 64 位十六进制内容，权限设为 `0600`。
-- 孔明 Web 启用 `kmh-mingting` 插件，提供明庭本机 `platformUrl`、相同的 `hostId` 和凭据绝对路径 `tokenFile`。两个进程在同一台机器和账号下运行。
+```json
+[
+  {
+    "hostId": "25ced0de-f1e4-4fc9-aede-950038658006",
+    "tokenFile": "chat-host.token"
+  }
+]
+```
 
-在发起会话委托发布任务，工具返回任务编号和链接。审批由用户在明庭网页处理。完成通知与运行编号一一对应，宿主重连时补收未确认的事件。实际唤醒以原会话出现完成通知及独立新轮次为准。
+| 动作 | 接口 |
+| --- | --- |
+| 接收事件 | `GET /wakeup-host/events`，带 `Authorization: Bearer <宿主令牌>`。每个宿主可开一条 SSE 连接。收到 `ready` 后即可发单 |
+| 发布或续接 | 带同一令牌调用 `/mcp` 的 `mcp-mingting-tool`。在调用的 `params._meta["mingting.local/publisher-context"]` 提供 `sessionId`、`originTurn`（正整数或原生字符串）、稳定的 `publishRequestId` 和可选的 `targetSessionId`。明庭从令牌得到 `hostId`，首发回执的 `wakeupTarget` 为 `{hostId, sessionId}` |
+| 确认投递 | `POST /wakeup-host/ack`，带同一令牌。宿主将事件存入目标会话后提交 `{eventId, sessionId, outcome: "accepted"}`。目标已归档或不存在时提交 `{eventId, sessionId, outcome: "rejected", reason: "session-unavailable"}` |
 
-现有手工 `wakeup` 发布参数和 `get_wakeup_status` 继续用于 Codex 宿主。
+`task.completed` 帧提供 `eventId`、`taskId`、`runId`、目标 `sessionId`、`completedAt`，以及可用的 `taskTurn` 和 `result` 预览。宿主用稳定的 `task.completed:<runId>` 作为入队去重键。明庭按宿主重放待确认事件。重复提交相同确认返回成功，跨宿主或错会话确认被拒绝。实际开启新轮次由宿主负责。
+
+当前契约见 [host-wakeup.ts](../src/shared/host-wakeup.ts)。客户端可用 `node scripts/sync-host-wakeup-contract.mjs <目标文件>` 同步。切换时移除结果版本请求头，按新目标和事件结构解析。发单轮次保存在任务来源中，详情页仍可查询。
 
 ### 唤醒 Codex 聊天
 

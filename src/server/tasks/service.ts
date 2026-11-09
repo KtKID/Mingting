@@ -17,7 +17,7 @@ import {
   type SubscriberDecision,
   type TaskMessageScope,
 } from "../../shared/protocol.js";
-import type { DshAck, DshPublish } from "../../shared/dsh-wakeup.js";
+import type { HostAck } from "../../shared/host-wakeup.js";
 import type { WakeupAcknowledgement } from "../../shared/task-wakeup.js";
 import type { Store } from "../storage/store.js";
 import {
@@ -114,10 +114,6 @@ export class TaskService {
     return this.registry.harnesses();
   }
 
-  publishFromDsh(hostId: string, input: DshPublish, connected: boolean) {
-    return this.publication.publishFromDsh(hostId, input, connected);
-  }
-
   isOriginalPublisher(taskId: string, publisher: HostPublisher) {
     return this.publication.isOriginalPublisher(taskId, publisher);
   }
@@ -130,8 +126,8 @@ export class TaskService {
     return this.publication.publish(raw, publisher);
   }
 
-  acknowledgeDshWakeup(hostId: string, ack: DshAck) {
-    return wakeupReceipts.acknowledgeDshWakeup(this.store, hostId, ack);
+  acknowledgeHostWakeup(hostId: string, ack: HostAck) {
+    return wakeupReceipts.acknowledgeHostWakeup(this.store, hostId, ack);
   }
 
   wakeupStatus() {

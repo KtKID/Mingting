@@ -1,13 +1,8 @@
 import { Router } from "express";
 import { z } from "zod";
-import {
-  decisionSchema,
-  LIMITS,
-  publishTaskSchema,
-} from "../../../shared/protocol.js";
+import { decisionSchema, LIMITS } from "../../../shared/protocol.js";
 import { AppError, type TaskService } from "../../tasks/service.js";
-import { taskExchange, taskMessage } from "../task-communication.js";
-import { withTaskUrl } from "../task-url.js";
+import { taskExchange } from "../task-communication.js";
 import { browserEvents } from "./events.js";
 import { browserSession } from "./session.js";
 
@@ -21,6 +16,15 @@ export function browserApiRouter(
   const { store } = service;
   const session = browserSession(workspace, mode);
   router.get("/api/bootstrap", session.bootstrap);
+  router.post("/mcp", (req, res, next) => {
+    // 网页发单沿用任务台会话和 CSRF 校验，随后由 MCP 路由处理。
+    if (
+      req.headers.origin !== undefined ||
+      req.headers["sec-fetch-site"] !== undefined
+    )
+      return session.requireSession(req, res, next);
+    next();
+  });
   router.use("/api", session.requireSession);
   router.get(
     "/api/tasks",
@@ -32,22 +36,6 @@ export function browserApiRouter(
       res.json(service.harnesses()),
   );
   router.get("/api/events", browserEvents(service, session.isActive));
-  router.post("/api/tasks", (req, res) => {
-    // 从网页发布任务，记录发单回执并返回任务地址。
-    const receipt = withTaskUrl(
-      req,
-      service.publish(publishTaskSchema.parse(req.body)),
-    );
-    taskMessage(
-      store,
-      store.taskMessageScope(receipt.taskId),
-      "publisher",
-      "send",
-      "new.response",
-      receipt,
-    );
-    res.status(201).json(receipt);
-  });
   router.get("/api/tasks/:id", (req, res) => {
     // 读取任务详情与唤醒摘要，支持从指定序号读取通信。
     const seqAfter = z.coerce

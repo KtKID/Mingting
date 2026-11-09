@@ -1,11 +1,11 @@
-import { Router } from "express";
+import { Router, type Request } from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import {
   publisherContextKey,
   taskCommandDescription,
   publishTaskToolName,
-} from "../../shared/dsh-wakeup.js";
+} from "../../shared/host-wakeup.js";
 import {
   approvalSubscriptionSchema,
   approvalWaitSchema,
@@ -15,7 +15,7 @@ import {
 } from "../../shared/protocol.js";
 import { wakeupAcknowledgementSchema } from "../../shared/task-wakeup.js";
 import { AppError, type TaskService } from "../tasks/service.js";
-import type { dshWakeupRouter } from "./dsh-wakeup.js";
+import type { HostPublisher } from "../tasks/publication.js";
 import { subscriberDecision } from "./subscriber/decision.js";
 import { taskExchange, taskMessage } from "./task-communication.js";
 import { withTaskUrl } from "./task-url.js";
@@ -23,7 +23,7 @@ import { withTaskUrl } from "./task-url.js";
 /** 提供 MCP 工具，并为每个请求组装独立的 MCP 传输。 */
 export function mcpRouter(
   service: TaskService,
-  readPublisher?: ReturnType<typeof dshWakeupRouter>["publisher"],
+  readPublisher?: (request: Request, raw: unknown) => HostPublisher,
 ) {
   const router = Router();
   const { store } = service;
@@ -51,7 +51,7 @@ export function mcpRouter(
         try {
           const raw = extra._meta?.[publisherContextKey];
           if (raw !== undefined && !readPublisher)
-            throw new AppError(503, "明庭尚未配置 KMH 宿主");
+            throw new AppError(503, "明庭尚未配置唤醒宿主");
           const publisher =
             raw === undefined ? undefined : readPublisher?.(req, raw);
           if (

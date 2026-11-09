@@ -1,3 +1,6 @@
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import {
   useEffect,
   useRef,
@@ -26,6 +29,7 @@ import {
   type RunUsage,
 } from "../shared/protocol";
 import type { WakeupEvent } from "../shared/task-wakeup";
+import { publishTaskToolName } from "../shared/host-wakeup";
 import "./style.css";
 import { ApprovalCard } from "./approval-card";
 
@@ -420,13 +424,33 @@ function App() {
       };
     setBusy(true);
     setError("");
+    const client = new Client({ name: "mingting-web", version: "1" });
     try {
-      const result = await api("/tasks", publishResultSchema, values);
+      await client.connect(
+        new StreamableHTTPClientTransport(
+          new URL("/mcp", window.location.origin),
+          {
+            requestInit: { headers: { "x-csrf-token": boot?.csrf ?? "" } },
+          },
+        ),
+      );
+      const reply = CallToolResultSchema.parse(
+        await client.callTool({
+          name: publishTaskToolName,
+          arguments: { ...values, action: "new" },
+        }),
+      );
+      if (reply.isError) {
+        const message = reply.content.find((item) => item.type === "text");
+        throw new Error(message?.text ?? "任务发布失败");
+      }
+      const result = publishResultSchema.parse(reply.structuredContent);
       setForm(false);
       setSelected(result.taskId);
     } catch (e) {
-      setError((e as Error).message);
+      setError(e instanceof Error ? e.message : "任务发布失败");
     } finally {
+      await client.close();
       setBusy(false);
     }
   }

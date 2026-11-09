@@ -6,7 +6,7 @@ import { TaskService } from "../tasks/service.js";
 import type { WakeupDelivery } from "../wakeup/task-wakeup.js";
 import { browserApiRouter } from "./browser-api/router.js";
 import { connectorRouter } from "./connector.js";
-import { dshWakeupRouter, type DshWakeupHost } from "./dsh-wakeup.js";
+import { hostWakeupRouter, type HostWakeupHost } from "./host-wakeup.js";
 import { httpErrorHandler, localHttpGuard } from "./http-middleware.js";
 import { mcpRouter } from "./mcp.js";
 import { subscriberRouter } from "./subscriber/router.js";
@@ -18,7 +18,7 @@ type Config = {
 
   mode?: "fake" | "codex";
   wakeupDelivery?: WakeupDelivery;
-  dshWakeupHost?: DshWakeupHost;
+  wakeupHosts?: HostWakeupHost[];
   configPath?: string;
 };
 
@@ -39,18 +39,14 @@ export function createPlatform(config: Config) {
   app.set("trust proxy", false);
   app.use(localHttpGuard());
   app.use(express.json({ limit: LIMITS.httpBytes }));
-  const dshHost = config.dshWakeupHost
-    ? dshWakeupRouter(
-        service,
-        config.dshWakeupHost,
-        tasks.wakeupResultTextLimit,
-      )
+  const wakeupHost = config.wakeupHosts?.length
+    ? hostWakeupRouter(service, config.wakeupHosts, tasks.wakeupResultTextLimit)
     : undefined;
-  if (dshHost) app.use("/wakeup-host", dshHost.router);
+  if (wakeupHost) app.use("/wakeup-host", wakeupHost.router);
   app.use(browserApiRouter(service, workspace, mode));
   app.use(subscriberRouter(service));
   app.use(connectorRouter(service));
-  app.use(mcpRouter(service, dshHost?.publisher));
+  app.use(mcpRouter(service, wakeupHost?.publisher));
   app.use(webAssetsRouter());
   app.use(httpErrorHandler);
   return { app, service, store };

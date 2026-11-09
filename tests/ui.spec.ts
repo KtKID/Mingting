@@ -1,5 +1,9 @@
 import { test, expect, type Page } from "@playwright/test";
 import {
+  CallToolResultSchema,
+  JSONRPCResultResponseSchema,
+} from "@modelcontextprotocol/sdk/types.js";
+import {
   bootstrapSchema,
   publishResultSchema,
   detailSchema,
@@ -232,20 +236,35 @@ async function publishApprovalTask(page: Page, title: string) {
   const bootstrap = bootstrapSchema.parse(
     await (await page.request.get("/api/bootstrap")).json(),
   );
-  const response = await page.request.post("/api/tasks", {
+  const response = await page.request.post("/mcp", {
     headers: {
+      accept: "application/json, text/event-stream",
       origin: new URL(page.url()).origin,
       "x-csrf-token": bootstrap.csrf,
     },
     data: {
-      title,
-      description: "检查审批等待与用户优先规则",
-      publisherName: "Codex",
-      approvalTargets: ["subscriber"],
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "mcp-mingting-tool",
+        arguments: {
+          action: "new",
+          title,
+          description: "检查审批等待与用户优先规则",
+          publisherName: "Codex",
+          approvalTargets: ["subscriber"],
+        },
+      },
     },
   });
-  expect(response.status()).toBe(201);
-  const result = publishResultSchema.parse(await response.json());
+  expect(response.ok()).toBe(true);
+  const { result: reply } = JSONRPCResultResponseSchema.parse(
+    await response.json(),
+  );
+  const result = publishResultSchema.parse(
+    CallToolResultSchema.parse(reply).structuredContent,
+  );
   const subscription = result.approvalSubscription;
   if (!subscription) throw new Error("missing subscription");
   await expect

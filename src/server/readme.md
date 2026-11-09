@@ -20,7 +20,7 @@
 
 | 目录                             | 从这里查什么                                   |
 | -------------------------------- | ---------------------------------------------- |
-| [transport](transport/readme.md) | 网页、MCP、连接器、订阅者和 DSH 宿主的接口     |
+| [transport](transport/readme.md) | 网页、MCP、连接器、订阅者和通用宿主唤醒接口     |
 | [tasks](tasks/readme.md)         | 发布、认领、进度、审批、取消与重试             |
 | [storage](storage/readme.md)     | SQLite、事件回放、审批归档                     |
 | [wakeup](wakeup/readme.md)       | Codex 会话探测与审批、完成通知投递             |
@@ -30,6 +30,6 @@
 
 | Spec                                                                                | 与服务端的关系                                                                                                                                                   |
 | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [统一发单与结果订阅](../../docs/spec/unified-task-publishing/spec.md)               | 网页和 MCP 共用发布逻辑，订阅者凭回执读结果。旧 DSH 专属入口退役是后续阶段，代码仍提供该入口。[技术设计](../../docs/spec/unified-task-publishing/tech-design.md) |
+| [统一发单与结果订阅](../../docs/spec/unified-task-publishing/spec.md) | 网页和其他发布方共用 MCP 发单入口，订阅者凭回执读结果。[旧入口退役记录](../../docs/spec/unified-task-publishing/tasks/task-retire-legacy-publishing.md) |
 | [DSH 原会话唤醒](../../docs/spec/dsh-task-wakeups/spec.md)                          | 定义会话绑定、完成通知和去重要求，历史专属发单路径见 [技术设计](../../docs/spec/dsh-task-wakeups/tech-design.md)。                                               |
 | [Codex 设置、审批审计和用量](../../docs/spec/codex-task-settings-and-audit/spec.md) | 从执行器设置回读和运行回报，到详情查询和审计记录。[技术设计](../../docs/spec/codex-task-settings-and-audit/tech-design.md)                                       |

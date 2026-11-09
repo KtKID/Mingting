@@ -24,7 +24,7 @@
    printf '%s\n' "$demo_dir"
    PORT=60490 TASK_DB="$demo_dir/tasks.sqlite" TASK_WORKSPACE="$demo_dir/workspace" \
      FAKE_ACP=1 TASK_AUTH=existing TASK_HARNESS=Codex TASK_CONNECTOR=manual \
-     MINGTING_CODEX_WAKEUPS=0 MINGTING_DSH_HOST_ID= MINGTING_DSH_TOKEN_FILE= npm start
+     MINGTING_CODEX_WAKEUPS=0 MINGTING_WAKEUP_HOSTS_FILE= npm start
    ```
 
 2. 在终端二通过普通 MCP 发一条测试任务。回执返回 `taskId` 和任务链接，此时任务保持排队。`[settings-check]` 让模拟执行器直接回报实际采用的模型和档位。

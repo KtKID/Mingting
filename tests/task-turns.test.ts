@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -9,15 +9,15 @@ import { z } from "zod";
 import { createPlatform } from "../src/server/transport/http.js";
 import {
   appendReceiptSchema,
-  dshCompletionSchema,
+  hostCompletionSchema,
   publisherContextKey,
   resultReceiptSchema,
-  wakeupResultHeader,
-} from "../src/shared/dsh-wakeup.js";
+} from "../src/shared/host-wakeup.js";
 import {
   claimResultSchema,
   deliveryEventSchema,
   detailSchema,
+  publishTaskSchema,
 } from "../src/shared/protocol.js";
 
 async function eventStream(response: Response) {
@@ -63,7 +63,7 @@ test(
       dbPath: join(dir, "tasks.sqlite"),
       workspace: dir,
       mode: "fake",
-      dshWakeupHost: { hostId, token },
+      wakeupHosts: [{ hostId, token }],
     });
     const server = createServer(platform.app);
     try {
@@ -144,7 +144,7 @@ test(
       }
       const wakeups = await eventStream(
         await fetch(origin + "/wakeup-host/events", {
-          headers: { ...publisher, [wakeupResultHeader]: "2" },
+          headers: publisher,
           signal,
         }),
       );
@@ -162,24 +162,35 @@ test(
         "冲突核对与最终计划",
         "补上地铁换乘备注",
       ];
+      const initial = publishTaskSchema.parse({
+        title: "杭州周末出行规划",
+        description: description[0],
+        publisherName: "孔明",
+        targetHarness: "Codex",
+        approvalTargets: [],
+      });
       const created = resultReceiptSchema.parse(
-        (
-          await publish(
-            {
-              action: "new",
-              title: "杭州周末出行规划",
-              description: description[0],
-              publisherName: "孔明",
-              targetHarness: "Codex",
-              approvalTargets: [],
-            },
-            4,
-            "turn-1",
-          )
-        ).structuredContent,
+        (await publish({ action: "new", ...initial }, 4, "turn-1"))
+          .structuredContent,
       );
       const { taskId } = created;
       assert.equal(created.taskTurn, 1);
+      assert.equal(
+        platform.store.hostPublication(hostId, "mcp:turn-1")?.fingerprint,
+        createHash("sha256")
+          .update(
+            JSON.stringify([
+              initial,
+              {
+                hostId,
+                sessionId,
+                originTurn: 4,
+                publisherSessionId: sessionId,
+              },
+            ]),
+          )
+          .digest("hex"),
+      );
       const results = await eventStream(
         await fetch(
           origin + `/subscriber/events?taskId=${taskId}&view=result`,
@@ -218,6 +229,23 @@ test(
             expected,
           );
           if (taskTurn === 2) {
+            assert.equal(
+              platform.store.hostPublication(hostId, `mcp:${requestId}`)
+                ?.fingerprint,
+              createHash("sha256")
+                .update(
+                  JSON.stringify([
+                    command,
+                    {
+                      hostId,
+                      sessionId,
+                      publisherSessionId: sessionId,
+                      originTurn,
+                    },
+                  ]),
+                )
+                .digest("hex"),
+            );
             assert.deepEqual(
               appendReceiptSchema.parse(
                 (await publish(command, originTurn, requestId))
@@ -297,12 +325,11 @@ test(
           ).status,
           200,
         );
-        const completion = dshCompletionSchema.parse(
+        const completion = hostCompletionSchema.parse(
           await wakeups("task.completed"),
         );
         assert.equal(completion.taskId, taskId);
         assert.equal(completion.taskTurn, taskTurn);
-        assert.equal(completion.originTurn, index + 4);
         assert.equal(completion.sessionId, sessionId);
         assert.equal(completion.result?.output, text);
         assert.equal(

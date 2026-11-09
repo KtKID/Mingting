@@ -4,14 +4,18 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { createPlatform } from "../src/server/transport/http.js";
 import {
-  dshCompletionSchema,
-  dshPublishSchema,
-  wakeupResultHeader,
-} from "../src/shared/dsh-wakeup.js";
+  configuredWakeupHosts,
+  hostWakeupRouter,
+} from "../src/server/transport/host-wakeup.js";
+import {
+  hostCompletionSchema,
+  hostPublisherContextSchema,
+} from "../src/shared/host-wakeup.js";
 import { browserSnapshotSchema } from "../src/shared/protocol.js";
 
 async function readSseFrame(reader: ReadableStreamDefaultReader<string>) {
@@ -24,17 +28,15 @@ async function readSseFrame(reader: ReadableStreamDefaultReader<string>) {
   return buffer.slice(0, buffer.indexOf("\n\n"));
 }
 
-test("the DSH contract keeps accepting existing bare UUID session IDs", () => {
+test("the host contract accepts bare UUID session IDs and native turn references", () => {
   const sessionId = randomUUID();
-  const input = dshPublishSchema.parse({
-    title: "Existing chat",
-    description: "Reply yes",
-    publisherName: "DSH",
+  const input = hostPublisherContextSchema.parse({
     sessionId,
-    originTurn: 1,
+    originTurn: "turn-native",
     publishRequestId: "existing-call",
   });
   assert.equal(input.sessionId, sessionId);
+  assert.equal(input.originTurn, "turn-native");
 });
 
 test("platform rejects an invalid wakeup result text limit at startup", async () => {
@@ -57,20 +59,74 @@ test("platform rejects an invalid wakeup result text limit at startup", async ()
   }
 });
 
+test("host configuration loads separate tokens and rejects ambiguous credentials", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "mingting-wakeup-config-"));
+  const platform = createPlatform({
+    dbPath: join(dir, "tasks.sqlite"),
+    workspace: dir,
+  });
+  try {
+    assert.deepEqual(configuredWakeupHosts({}), []);
+    const file = join(dir, "hosts.json");
+    const hosts = Array.from({ length: 2 }, () => ({
+      hostId: randomUUID(),
+      token: randomBytes(32).toString("hex"),
+    }));
+    await Promise.all([
+      ...hosts.map((host) =>
+        writeFile(join(dir, host.hostId), host.token + "\n", { mode: 0o600 }),
+      ),
+      writeFile(
+        file,
+        JSON.stringify(
+          hosts.map(({ hostId }) => ({ hostId, tokenFile: hostId })),
+        ),
+      ),
+    ]);
+    assert.deepEqual(
+      configuredWakeupHosts({ MINGTING_WAKEUP_HOSTS_FILE: file }),
+      hosts,
+    );
+    assert.throws(
+      () =>
+        hostWakeupRouter(
+          platform.service,
+          [hosts[0], { ...hosts[1], token: hosts[0].token }],
+          5,
+        ),
+      /必须各自唯一/,
+    );
+    assert.throws(
+      () =>
+        hostWakeupRouter(
+          platform.service,
+          [hosts[0], { ...hosts[1], hostId: hosts[0].hostId }],
+          5,
+        ),
+      /必须各自唯一/,
+    );
+  } finally {
+    await platform.service.close();
+    platform.store.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test(
-  "authenticated DSH publishes once, keeps webpage approvals, and replays the exact completion until the correct session acknowledges it",
+  "retired DSH publishing cannot create tasks and accepted legacy tasks still deliver and replay completion",
   { timeout: 10_000 },
   async () => {
-    const dir = await mkdtemp(join(tmpdir(), "mingting-dsh-"));
+    const dir = await mkdtemp(join(tmpdir(), "mingting-wakeup-host-"));
     const token = randomBytes(32).toString("hex");
     const hostId = randomUUID();
     const configPath = join(dir, "config.yaml");
     await writeFile(configPath, "tasks:\n  wakeupResultTextLimit: 3\n");
+    const dbPath = join(dir, "tasks.sqlite");
     const platform = createPlatform({
-      dbPath: join(dir, "tasks.sqlite"),
+      dbPath,
       workspace: dir,
       mode: "fake",
-      dshWakeupHost: { hostId, token },
+      wakeupHosts: [{ hostId, token }],
       configPath,
     });
     const server = createServer(platform.app);
@@ -95,12 +151,10 @@ test(
           body: JSON.stringify(data),
           signal,
         });
-      const connect = async (includeResult = false) => {
+      const connect = async () => {
         const stream = () =>
           fetch(base + "/wakeup-host/events", {
-            headers: includeResult
-              ? { ...headers, [wakeupResultHeader]: "1" }
-              : headers,
+            headers,
             signal,
           });
         let response = await stream();
@@ -147,28 +201,42 @@ test(
         originTurn: 7,
         publishRequestId: "call-a",
       };
-      assert.equal((await post("publish", input)).status, 503);
+      assert.equal((await post("publish", input)).status, 404);
       assert.equal(platform.store.list().length, 0);
       const first = await connect();
       assert.deepEqual(await first.read("ready"), { hostId });
-      assert.equal((await post("publish", { ...input, hostId })).status, 400);
-      assert.equal(
-        (await post("publish", { ...input, sessionId: "" })).status,
-        400,
-      );
+      assert.equal((await post("publish", input)).status, 404);
       assert.equal(platform.store.list().length, 0);
-      const published = await post("publish", input);
-      assert.equal(published.status, 201);
-      const { taskId } = await published.json();
-      const retry = await post("publish", input);
-      assert.equal(retry.status, 200);
-      assert.deepEqual(await retry.json(), { taskId });
-      assert.equal(
-        (await post("publish", { ...input, description: "changed" })).status,
-        409,
-      );
+      const { sessionId, originTurn, publishRequestId, ...taskInput } = input;
+      const taskId = platform.store.transaction(() => {
+        const task = platform.store.publish(
+          { ...taskInput, approvalTargets: [] },
+          {
+            wakeupTarget: { hostId, sessionId },
+            source: { hostId, publisherSessionId: sessionId, originTurn },
+          },
+        );
+        platform.store.recordHostPublication(
+          hostId,
+          publishRequestId,
+          "legacy-fingerprint",
+          task.id,
+        );
+        platform.store.deliver(task.id);
+        return task.id;
+      });
       assert.equal(platform.store.list().length, 1);
       assert.deepEqual(platform.store.task(taskId)?.approvalTargets, []);
+      const legacy = new DatabaseSync(dbPath);
+      try {
+        legacy
+          .prepare(
+            "UPDATE task_turns SET data=json_set(data,'$.wakeupTarget.originTurn',?,'$.wakeupTarget.publisherSessionId',?) WHERE task_id=?",
+          )
+          .run(originTurn, sessionId, taskId);
+      } finally {
+        legacy.close();
+      }
 
       const owner = { ownerId: randomUUID(), claimId: randomUUID() };
       const { run } = platform.service.claim(taskId, owner);
@@ -227,28 +295,37 @@ test(
         taskId,
         runId: run.id,
         sessionId: input.sessionId,
-        originTurn: input.originTurn,
       };
-      const completed = await first.read("task.completed");
+      const completed = hostCompletionSchema.parse(
+        await first.read("task.completed"),
+      );
       assert.deepEqual(
         { ...completed, completedAt: undefined },
-        { ...event, completedAt: undefined },
-      );
-      await first.close();
-      const second = await connect();
-      assert.deepEqual(await second.read("task.completed"), completed);
-      await second.close();
-      const withResult = await connect(true);
-      assert.deepEqual(
-        dshCompletionSchema.parse(await withResult.read("task.completed"))
-          .result,
         {
-          status: "succeeded",
-          output: "完整结",
-          error: null,
-          truncated: true,
+          ...event,
+          completedAt: undefined,
+          taskTurn: 1,
+          result: {
+            status: "succeeded",
+            output: "完整结",
+            error: null,
+            truncated: true,
+          },
         },
       );
+      await first.close();
+      const legacyEvent = new DatabaseSync(dbPath);
+      try {
+        legacyEvent
+          .prepare(
+            "UPDATE task_wakeup_events SET data=json_set(data,'$.target.originTurn',?,'$.target.publisherSessionId',?) WHERE id=?",
+          )
+          .run(originTurn, sessionId, event.eventId);
+      } finally {
+        legacyEvent.close();
+      }
+      const second = await connect();
+      assert.deepEqual(await second.read("task.completed"), completed);
       assert.equal(
         (
           await post("ack", {
@@ -287,17 +364,21 @@ test(
 );
 
 test(
-  "standard MCP issues a recoverable result receipt and binds the configured session",
+  "standard MCP binds the configured session and isolates concurrent wakeup hosts",
   { timeout: 10_000 },
   async () => {
     const dir = await mkdtemp(join(tmpdir(), "mingting-mcp-result-"));
     const token = randomBytes(32).toString("hex");
     const hostId = randomUUID();
+    const otherHost = {
+      hostId: randomUUID(),
+      token: randomBytes(32).toString("hex"),
+    };
     const platform = createPlatform({
       dbPath: join(dir, "tasks.sqlite"),
       workspace: dir,
       mode: "fake",
-      dshWakeupHost: { hostId, token },
+      wakeupHosts: [{ hostId, token }, otherHost],
     });
     const server = createServer(platform.app);
     const stop = new AbortController();
@@ -310,18 +391,19 @@ test(
       assert.ok(address && typeof address !== "string");
       const base = `http://127.0.0.1:${address.port}`;
       const hostHeaders = { authorization: `Bearer ${token}` };
+      const otherHeaders = { authorization: `Bearer ${otherHost.token}` };
       const source = `session-${randomUUID()}`;
       const target = randomUUID();
       const context = {
         sessionId: source,
-        originTurn: 3,
+        originTurn: "turn-3",
         targetSessionId: target,
         publishRequestId: "mcp-call",
       };
       const args = {
         title: "Write test file",
         description: "Write one line",
-        publisherName: "KMH",
+        publisherName: "宿主",
         approvalTargets: [],
       };
       const publish = async (
@@ -356,7 +438,7 @@ test(
       assert.equal((await publish(hostHeaders)).isError, true);
       assert.equal(platform.store.list().length, 0);
       const stream = await fetch(base + "/wakeup-host/events", {
-        headers: { ...hostHeaders, [wakeupResultHeader]: "1" },
+        headers: hostHeaders,
         signal,
       });
       assert.equal(stream.status, 200);
@@ -365,6 +447,26 @@ test(
         .pipeThrough(new TextDecoderStream())
         .getReader();
       assert.match((await hostReader.read()).value ?? "", /event: ready/);
+      assert.equal((await publish(otherHeaders)).isError, true);
+      const otherStream = await fetch(base + "/wakeup-host/events", {
+        headers: otherHeaders,
+        signal,
+      });
+      assert.equal(otherStream.status, 200);
+      assert.ok(otherStream.body);
+      const otherReader = otherStream.body
+        .pipeThrough(new TextDecoderStream())
+        .getReader();
+      assert.match(
+        await readSseFrame(otherReader),
+        new RegExp(otherHost.hostId),
+      );
+      const duplicate = await fetch(base + "/wakeup-host/events", {
+        headers: hostHeaders,
+        signal,
+      });
+      assert.equal(duplicate.status, 409);
+      await duplicate.body?.cancel();
       assert.equal(
         (
           await publish(hostHeaders, args.description, {
@@ -380,8 +482,6 @@ test(
       assert.deepEqual(receipt.wakeupTarget, {
         hostId,
         sessionId: target,
-        originTurn: 3,
-        publisherSessionId: source,
       });
       assert.equal(receipt.approvalSubscription, undefined);
       assert.deepEqual((await publish(hostHeaders)).structuredContent, receipt);
@@ -412,13 +512,13 @@ test(
         stopReason: "end_turn",
         error: null,
       });
-      const readCompletion = async () => {
-        const frame = await readSseFrame(hostReader);
+      const readCompletion = async (reader = hostReader) => {
+        const frame = await readSseFrame(reader);
         const payload = /^data: (.+)$/m.exec(frame)?.[1];
         assert.ok(payload);
         return {
           frame,
-          completion: dshCompletionSchema.parse(JSON.parse(payload)),
+          completion: hostCompletionSchema.parse(JSON.parse(payload)),
         };
       };
       const { completion } = await readCompletion();
@@ -430,6 +530,18 @@ test(
         truncated: true,
       });
       const eventId = `task.completed:${run.id}`;
+      const rejectedAck = await fetch(base + "/wakeup-host/ack", {
+        method: "POST",
+        signal,
+        headers: { ...otherHeaders, "content-type": "application/json" },
+        body: JSON.stringify({
+          eventId,
+          sessionId: target,
+          outcome: "accepted",
+        }),
+      });
+      assert.equal(rejectedAck.status, 404);
+      await rejectedAck.body?.cancel();
       const ack = await fetch(base + "/wakeup-host/ack", {
         method: "POST",
         signal,
@@ -461,7 +573,7 @@ test(
       assert.ok(payload);
       const snapshot = browserSnapshotSchema.parse(JSON.parse(payload));
       assert.deepEqual(snapshot.detail?.wakeup, {
-        target: { sessionId: target, originTurn: 3 },
+        target: { sessionId: target, originTurn: "turn-3" },
         events: [{ id: eventId, type: "task.completed", status: "delivered" }],
       });
       assert.equal(
@@ -496,11 +608,13 @@ test(
         await reader.cancel();
       }
 
-      const { structuredContent: escapedReceipt } = await publish(
-        hostHeaders,
-        args.description,
-        { ...context, publishRequestId: "escaped-output" },
-      );
+      // 两个宿主可使用相同的会话和请求 ID，任务与投递仍按宿主隔离。
+      const { structuredContent: escapedReceipt } = await publish(otherHeaders);
+      assert.notEqual(escapedReceipt.taskId, receipt.taskId);
+      assert.deepEqual(escapedReceipt.wakeupTarget, {
+        hostId: otherHost.hostId,
+        sessionId: target,
+      });
       const escapedRun = platform.service.claim(
         escapedReceipt.taskId,
         owner,
@@ -526,13 +640,32 @@ test(
         stopReason: null,
         error: "\u001b".repeat(2000),
       });
-      const escaped = await readCompletion();
+      const escaped = await readCompletion(otherReader);
+      assert.equal(escaped.completion.taskId, escapedReceipt.taskId);
       assert.equal(escaped.completion.runId, escapedRun.id);
       assert.ok(escaped.frame.length + 2 <= 16_384);
       assert.equal(escaped.completion.result?.truncated, true);
       assert.ok(escaped.completion.result?.output.length);
       assert.ok(escaped.completion.result?.error?.length);
       assert.equal(platform.store.run(escapedRun.id)?.output, escapedOutput);
+      const unavailable = await fetch(base + "/wakeup-host/ack", {
+        method: "POST",
+        signal,
+        headers: { ...otherHeaders, "content-type": "application/json" },
+        body: JSON.stringify({
+          eventId: escaped.completion.eventId,
+          sessionId: target,
+          outcome: "rejected",
+          reason: "session-unavailable",
+        }),
+      });
+      assert.equal(unavailable.status, 200);
+      assert.equal(
+        platform.store.hostWakeup(escaped.completion.eventId, otherHost.hostId)
+          ?.error,
+        "session-unavailable",
+      );
+      await otherReader.cancel();
       await hostReader.cancel();
     } finally {
       stop.abort();

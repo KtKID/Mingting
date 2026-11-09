@@ -4,13 +4,13 @@ import { resolve } from "node:path";
 
 const [target, option] = process.argv.slice(2);
 if (!target || (option !== undefined && option !== "--check"))
-  throw new Error("用法：sync-dsh-wakeup-contract.mjs <目标文件> [--check]");
+  throw new Error("用法：sync-host-wakeup-contract.mjs <目标文件> [--check]");
 const source = await readFile(
-  new URL("../src/shared/dsh-wakeup.ts", import.meta.url),
+  new URL("../src/shared/host-wakeup.ts", import.meta.url),
   "utf8",
 );
 const generated =
-  "/** 由明庭 scripts/sync-dsh-wakeup-contract.mjs 生成。 */\n" + source;
+  "/** 由明庭 scripts/sync-host-wakeup-contract.mjs 生成。 */\n" + source;
 const path = resolve(target);
 if (option === "--check") {
   if ((await readFile(path, "utf8")) !== generated)

@@ -226,11 +226,32 @@ export async function fixture(
       });
       return { status: response.status, body: (await response.json()) as any };
     };
+    const publish = async (input: Record<string, unknown>, browser = false) => {
+      const client = new Client({ name: "platform-test", version: "1" });
+      try {
+        await client.connect(
+          new StreamableHTTPClientTransport(new URL(base + "/mcp"), {
+            requestInit: browser
+              ? { headers: { cookie, origin: base, "x-csrf-token": csrf } }
+              : undefined,
+          }),
+        );
+        const result = await client.callTool({
+          name: "mcp-mingting-tool",
+          arguments: { action: "new", ...input },
+        });
+        assert.ok(!result.isError, JSON.stringify(result.content));
+        return publishResultSchema.parse(result.structuredContent);
+      } finally {
+        await client.close();
+      }
+    };
     return {
       ...platform,
       server,
       base,
       api,
+      publish,
       cookie,
       csrf,
       connector,
@@ -276,8 +297,7 @@ test("Web and MCP publish mixed-case Codex targets with settings before the conn
       publisherName: "Test",
       requestedSettings: { modelId: "B", reasoningEffort: "high" },
     };
-    const web = await p.api("/tasks", { ...input, targetHarness: "codex" });
-    assert.equal(web.status, 201);
+    const web = await p.publish({ ...input, targetHarness: "codex" }, true);
     await client.connect(
       new StreamableHTTPClientTransport(new URL(p.base + "/mcp")),
     );
@@ -287,7 +307,7 @@ test("Web and MCP publish mixed-case Codex targets with settings before the conn
     });
     assert.equal(mcp.isError, undefined);
     const tasks = [
-      [publishResultSchema.parse(web.body).taskId, "codex"],
+      [web.taskId, "codex"],
       [publishResultSchema.parse(mcp.structuredContent).taskId, "CoDeX"],
     ];
     for (const [taskId, target] of tasks) {
@@ -826,12 +846,12 @@ test("real HTTP MCP publish → SQLite → ACP child permission → browser API 
     });
     const id = (published.structuredContent as { taskId: string }).taskId;
     const second = (
-      await p.api("/tasks", {
+      await p.publish({
         title: "排队",
         description: "second",
         publisherName: "MCP",
       })
-    ).body.taskId;
+    ).taskId;
     const detail = await until(
       async () => (await p.api("/tasks/" + id)).body,
       (x) => x.approvals.length === 1,
@@ -878,12 +898,12 @@ test("reject uses original ACP reject option; invalid and wrong-session choices 
   const p = await f.build();
   try {
     const id = (
-      await p.api("/tasks", {
+      await p.publish({
         title: "拒绝",
         description: "test",
         publisherName: "user",
       })
-    ).body.taskId;
+    ).taskId;
     const detail = await until(
       async () => (await p.api("/tasks/" + id)).body,
       (x) => x.approvals.length > 0,
@@ -932,12 +952,12 @@ test("cancel invalidates pending callback; explicit retry creates a different ru
   const p = await f.build();
   try {
     const id = (
-      await p.api("/tasks", {
+      await p.publish({
         title: "取消",
         description: "test",
         publisherName: "user",
       })
-    ).body.taskId;
+    ).taskId;
     const d = await until(
       async () => (await p.api("/tasks/" + id)).body,
       (x) => x.approvals.length > 0,
@@ -979,12 +999,12 @@ test("restart persists tasks, interrupts old run and expires approvals; no callb
   let p = await f.build();
   try {
     const id = (
-      await p.api("/tasks", {
+      await p.publish({
         title: "重启",
         description: "test",
         publisherName: "user",
       })
-    ).body.taskId;
+    ).taskId;
     const d = await until(
       async () => (await p.api("/tasks/" + id)).body,
       (x) => x.approvals.length > 0,
@@ -1038,37 +1058,42 @@ test("local security: Host, Origin, CSRF, unknown fields and MCP cannot approve"
       ).status,
       403,
     );
-    assert.equal(
-      (
-        await fetch(p.base + "/api/tasks", {
-          method: "POST",
-          headers: { origin: p.base, "content-type": "application/json" },
-          body: "{}",
-        })
-      ).status,
-      403,
-    );
-    assert.equal(
-      (
-        await p.api("/tasks", {
-          title: "",
-          description: "x",
-          publisherName: "x",
-        })
-      ).status,
-      400,
-    );
-    assert.equal(
-      (
-        await p.api("/tasks", {
-          title: "x",
-          description: "x",
-          publisherName: "x",
-          cwd: "/etc",
-        })
-      ).status,
-      400,
-    );
+    const taskInput = { title: "x", description: "x", publisherName: "x" };
+    const retired = await fetch(p.base + "/api/tasks", {
+      method: "POST",
+      headers: {
+        cookie: p.cookie,
+        origin: p.base,
+        "content-type": "application/json",
+        "x-csrf-token": p.csrf,
+      },
+      body: JSON.stringify(taskInput),
+    });
+    assert.equal(retired.status, 404);
+    await retired.body?.cancel();
+    for (const cookie of [undefined, p.cookie]) {
+      const headers = new Headers({
+        origin: p.base,
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      });
+      if (cookie) headers.set("cookie", cookie);
+      const response = await fetch(p.base + "/mcp", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "mcp-mingting-tool", arguments: taskInput },
+        }),
+      });
+      assert.equal(response.status, 403);
+      await response.body?.cancel();
+    }
+    await assert.rejects(p.publish({ ...taskInput, title: "" }));
+    await assert.rejects(p.publish({ ...taskInput, cwd: "/etc" }));
+    assert.equal(p.store.list().length, 0);
     assert.equal(
       (
         await fetch(p.base + "/mcp", {
@@ -1089,19 +1114,19 @@ test("unexpected ACP process exit fails current run and unblocks next queued tas
   const p = await f.build();
   try {
     const id = (
-      await p.api("/tasks", {
+      await p.publish({
         title: "进程退出",
         description: "[process-exit]",
         publisherName: "test",
       })
-    ).body.taskId;
+    ).taskId;
     const next = (
-      await p.api("/tasks", {
+      await p.publish({
         title: "后续任务",
         description: "test",
         publisherName: "test",
       })
-    ).body.taskId;
+    ).taskId;
     const failed = await until(
       async () => (await p.api("/tasks/" + id)).body,
       (x) => x.task.status === "failed",
@@ -1122,12 +1147,12 @@ test("ACP permission for a different session is cancelled, never approved or dis
   const p = await f.build();
   try {
     const id = (
-      await p.api("/tasks", {
+      await p.publish({
         title: "错误会话",
         description: "[bad-session]",
         publisherName: "test",
       })
-    ).body.taskId;
+    ).taskId;
     const d = await until(
       async () => (await p.api("/tasks/" + id)).body,
       (x) => x.task.status === "succeeded",
@@ -1145,12 +1170,12 @@ test("server restart recovers persisted crash state and queued task; no auto-res
   let p = await f.build();
   try {
     const id = (
-      await p.api("/tasks", {
+      await p.publish({
         title: "崩溃现场",
         description: "test",
         publisherName: "test",
       })
-    ).body.taskId;
+    ).taskId;
     const d = await until(
       async () => (await p.api("/tasks/" + id)).body,
       (x) => x.task.status === "awaiting_approval",
@@ -1195,12 +1220,12 @@ test("approval deadline cancels the run, expires approval and rejects late decis
   const p = await f.build();
   try {
     const id = (
-      await p.api("/tasks", {
+      await p.publish({
         title: "审批超时",
         description: "test",
         publisherName: "test",
       })
-    ).body.taskId;
+    ).taskId;
     const d = await until(
       async () => (await p.api("/tasks/" + id)).body,
       (x) => x.task.status === "awaiting_approval",
@@ -1241,12 +1266,12 @@ test("explicit auth method is discovered and sent through ACP without using real
   const p = await f.build();
   try {
     const id = (
-      await p.api("/tasks", {
+      await p.publish({
         title: "认证协商",
         description: "fake only",
         publisherName: "test",
       })
-    ).body.taskId;
+    ).taskId;
     const d = await until(
       async () => (await p.api("/tasks/" + id)).body,
       (x) => x.task.status === "awaiting_approval",
@@ -1274,12 +1299,12 @@ test("cancel followed immediately by shutdown preserves the cancelled run across
   let p = await f.build();
   try {
     const id = (
-      await p.api("/tasks", {
+      await p.publish({
         title: "取消后关停",
         description: "test",
         publisherName: "test",
       })
-    ).body.taskId;
+    ).taskId;
     await until(
       async () => (await p.api("/tasks/" + id)).body,
       (x) => x.task.status === "awaiting_approval",
@@ -1343,12 +1368,12 @@ test("offline publication survives server restart; late HTTP subscriber replays 
   let p = await f.build(false);
   try {
     const id = (
-      await p.api("/tasks", {
+      await p.publish({
         title: "离线任务",
         description: "retained",
         publisherName: "test",
       })
-    ).body.taskId;
+    ).taskId;
     assert.equal((await p.api("/tasks/" + id)).body.task.status, "queued");
     await p.stop();
     p = await f.build(false);
@@ -1394,30 +1419,30 @@ test("Last-Event-ID reconnect replays publications during disconnection in order
     const first = open(0);
     const next = first.next();
     const a = (
-      await p.api("/tasks", {
+      await p.publish({
         title: "第一条",
         description: "x",
         publisherName: "x",
       })
-    ).body.taskId;
+    ).taskId;
     const one = (await next).value;
     assert.equal(one.taskId, a);
     controllers[0].abort();
     await first.return(undefined).catch(() => {});
     const b = (
-      await p.api("/tasks", {
+      await p.publish({
         title: "离线第二条",
         description: "x",
         publisherName: "x",
       })
-    ).body.taskId;
+    ).taskId;
     const c = (
-      await p.api("/tasks", {
+      await p.publish({
         title: "离线第三条",
         description: "x",
         publisherName: "x",
       })
-    ).body.taskId;
+    ).taskId;
     const second = open(one.id);
     const two = (await second.next()).value,
       three = (await second.next()).value;
@@ -1441,12 +1466,12 @@ test("concurrent and repeated claims are fenced; sequenced reports are idempoten
   const { post } = await import("../src/connector/transport.js");
   try {
     const id = (
-      await p.api("/tasks", {
+      await p.publish({
         title: "领取幂等",
         description: "x",
         publisherName: "test",
       })
-    ).body.taskId;
+    ).taskId;
     const one = { taskId: id, ownerId: randomUUID(), claimId: randomUUID() },
       two = { taskId: id, ownerId: randomUUID(), claimId: randomUUID() };
     const results = await Promise.allSettled([
@@ -1525,12 +1550,12 @@ test("two subscription clients receive duplicate availability but only one run e
   second.start();
   try {
     const id = (
-      await p.api("/tasks", {
+      await p.publish({
         title: "重复事件",
         description: "x",
         publisherName: "test",
       })
-    ).body.taskId;
+    ).taskId;
     const d = await until(
       async () => (await p.api("/tasks/" + id)).body,
       (x) => x.task.status === "awaiting_approval",
@@ -1565,19 +1590,19 @@ test("approval wait keeps ownership alive; cancel acknowledges termination and r
   const p = await f.build();
   try {
     const id = (
-      await p.api("/tasks", {
+      await p.publish({
         title: "等待审批",
         description: "x",
         publisherName: "test",
       })
-    ).body.taskId;
+    ).taskId;
     const next = (
-      await p.api("/tasks", {
+      await p.publish({
         title: "后续队列",
         description: "x",
         publisherName: "test",
       })
-    ).body.taskId;
+    ).taskId;
     const d = await until(
       async () => (await p.api("/tasks/" + id)).body,
       (x) => x.task.status === "awaiting_approval",
@@ -1627,12 +1652,12 @@ test("actual connector process death expires ownership and approvals; a new subs
   child.stderr.resume();
   try {
     const id = (
-      await p.api("/tasks", {
+      await p.publish({
         title: "连接器进程退出",
         description: "fake only",
         publisherName: "test",
       })
-    ).body.taskId;
+    ).taskId;
     const d = await until(
       async () => (await p.api("/tasks/" + id)).body,
       (x) => x.task.status === "awaiting_approval",
@@ -1645,12 +1670,12 @@ test("actual connector process death expires ownership and approvals; a new subs
     assert.equal(lost.task.status, "interrupted");
     assert.equal(lost.approvals[0].status, "expired");
     const next = (
-      await p.api("/tasks", {
+      await p.publish({
         title: "重连后任务",
         description: "x",
         publisherName: "test",
       })
-    ).body.taskId;
+    ).taskId;
     p.connector.start();
     await until(
       async () => (await p.api("/tasks/" + next)).body,
@@ -1688,12 +1713,12 @@ test("SSE rejects browser origins and invalid replay cursors; ACP payloads forwa
       400,
     );
     const id = (
-      await p.api("/tasks", {
+      await p.publish({
         title: "结构校验",
         description: "x",
         publisherName: "test",
       })
-    ).body.taskId;
+    ).taskId;
     const owner = { ownerId: randomUUID(), claimId: randomUUID() };
     const claim = await post<any>(p.base, "/connector/claim", {
       taskId: id,
@@ -1738,12 +1763,12 @@ test("connector cannot execute using a workspace or fake/real mode different fro
   );
   try {
     const id = (
-      await p.api("/tasks", {
+      await p.publish({
         title: "固定工作区",
         description: "must not start",
         publisherName: "test",
       })
-    ).body.taskId;
+    ).taskId;
     wrong.start();
     const d = await until(
       async () => (await p.api("/tasks/" + id)).body,
@@ -1764,19 +1789,19 @@ test("cancelling a stubborn ACP child forces process cleanup and does not perman
   const p = await f.build();
   try {
     const id = (
-      await p.api("/tasks", {
+      await p.publish({
         title: "挂起的测试 ACP",
         description: "[stubborn]",
         publisherName: "test",
       })
-    ).body.taskId;
+    ).taskId;
     const next = (
-      await p.api("/tasks", {
+      await p.publish({
         title: "强制停止后的任务",
         description: "fake only",
         publisherName: "test",
       })
-    ).body.taskId;
+    ).taskId;
     await until(
       async () => (await p.api("/tasks/" + id)).body,
       (x) => x.runs[0]?.output.includes("stubborn prompt started"),

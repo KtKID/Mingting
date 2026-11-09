@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { createPlatform } from "./transport/http.js";
 import { runtime, executableHarnessSchema } from "./harness/runtime.js";
 import { configuredCodexWakeups } from "./wakeup/codex-wakeup.js";
-import { configuredDshWakeupHost } from "./transport/dsh-wakeup.js";
+import { configuredWakeupHosts } from "./transport/host-wakeup.js";
 const port = Number(process.env.PORT ?? 60390);
 if (!Number.isInteger(port) || port < 60001 || port > 65535)
   throw new Error("PORT 必须在 60001–65535 之间");
@@ -17,7 +17,7 @@ const platform = createPlatform({
   workspace: config.workspace,
   mode: config.mode,
   wakeupDelivery,
-  dshWakeupHost: configuredDshWakeupHost(),
+  wakeupHosts: configuredWakeupHosts(),
 });
 const server = createServer(platform.app);
 server.requestTimeout = 30000;

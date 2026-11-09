@@ -8,11 +8,9 @@ import {
   type PublishTask,
 } from "../../shared/protocol.js";
 import {
-  type DshPublish,
-  type DshPublisherContext,
+  type HostPublisherContext,
   appendTaskSchema,
-} from "../../shared/dsh-wakeup.js";
-import type { DshWakeupTarget } from "../../shared/task-wakeup.js";
+} from "../../shared/host-wakeup.js";
 import type { Store } from "../storage/store.js";
 import type { WakeupDelivery } from "../wakeup/task-wakeup.js";
 import { wakeupStatus } from "../wakeup/receipts.js";
@@ -23,7 +21,7 @@ import { hashSubscriptionToken } from "./publisher-subscriptions.js";
 const now = () => new Date().toISOString();
 export type HostPublisher = {
   hostId: string;
-  source: DshPublisherContext;
+  source: HostPublisherContext;
   connected: boolean;
   subscriptionToken: string;
 };
@@ -35,61 +33,6 @@ export class TaskPublication {
     private available: (event: DeliveryEvent) => void,
     private wakeupDelivery?: WakeupDelivery,
   ) {}
-
-  /** 处理旧版 DSH 发单，按宿主请求 ID 去重，并广播新任务。 */
-  publishFromDsh(hostId: string, input: DshPublish, connected: boolean) {
-    const { publishRequestId, sessionId, originTurn, ...taskInput } = input;
-    const fingerprint = createHash("sha256")
-      .update(JSON.stringify(input))
-      .digest("hex");
-    const result = this.store.transaction(() => {
-      // 在事务内复用相同发单请求，或原子写入新任务、原会话绑定和投递。
-      const existing = this.store.dshPublication(hostId, publishRequestId);
-      if (existing) {
-        if (existing.fingerprint !== fingerprint)
-          throw new AppError(409, "原发布请求的内容已变化");
-        if (existing.taskTurn !== undefined)
-          this.store.communication(
-            existing.taskId,
-            existing.taskTurn,
-            "publisher",
-            "mingting",
-            "new",
-            taskInput,
-          );
-        return {
-          taskId: existing.taskId,
-          taskTurn: existing.taskTurn,
-          event: undefined,
-        };
-      }
-      if (this.isClosed() || !connected)
-        throw new AppError(503, "DSH 宿主尚未连接完成事件流");
-      if (this.store.countActive() >= LIMITS.queue)
-        throw new AppError(429, "队列已满");
-      const task = this.store.publish(
-        publishTaskSchema.parse({ ...taskInput, approvalTargets: [] }),
-        { hostId, sessionId, originTurn },
-      );
-      this.store.recordDshPublication(
-        hostId,
-        publishRequestId,
-        fingerprint,
-        task.id,
-      );
-      return {
-        taskId: task.id,
-        taskTurn: 1,
-        event: this.store.deliver(task.id),
-      };
-    });
-    if (result.event) this.available(result.event);
-    return {
-      taskId: result.taskId,
-      taskTurn: result.taskTurn,
-      created: result.event !== undefined,
-    };
-  }
 
   /** 核对追加者是否与任务首轮的宿主和原发布会话匹配。 */
   isOriginalPublisher(taskId: string, publisher: HostPublisher) {
@@ -109,11 +52,19 @@ export class TaskPublication {
     const target = {
       hostId: publisher.hostId,
       sessionId: source.targetSessionId ?? source.sessionId,
-      publisherSessionId: source.sessionId,
-      originTurn: source.originTurn,
     };
+    // 沿用既有指纹的字段及顺序，切换前已受理的请求仍可幂等重试。
     const fingerprint = createHash("sha256")
-      .update(JSON.stringify([command, target]))
+      .update(
+        JSON.stringify([
+          command,
+          {
+            ...target,
+            publisherSessionId: source.sessionId,
+            originTurn: source.originTurn,
+          },
+        ]),
+      )
       .digest("hex");
     const requestId = `mcp:${source.publishRequestId}`;
     const result = this.store.transaction(() => {
@@ -124,7 +75,7 @@ export class TaskPublication {
       if (!latest) throw new AppError(409, "历史任务不支持追加");
       if (!this.isOriginalPublisher(task.id, publisher))
         throw new AppError(403, "只有原发布会话可以追加");
-      const existing = this.store.dshPublication(publisher.hostId, requestId);
+      const existing = this.store.hostPublication(publisher.hostId, requestId);
       if (existing) {
         if (
           existing.taskId !== task.id ||
@@ -147,7 +98,7 @@ export class TaskPublication {
         };
       }
       if (!publisher.connected)
-        throw new AppError(503, "KMH 宿主尚未连接完成事件流");
+        throw new AppError(503, "唤醒宿主尚未连接完成事件流");
       if (
         ["queued", "running", "awaiting_approval"].includes(task.status) ||
         this.store
@@ -185,7 +136,7 @@ export class TaskPublication {
         "append",
         command,
       );
-      this.store.recordDshPublication(
+      this.store.recordHostPublication(
         publisher.hostId,
         requestId,
         fingerprint,
@@ -210,7 +161,7 @@ export class TaskPublication {
     if (this.isClosed()) throw new AppError(503, "服务正在停止");
     const input = publishTaskSchema.parse(raw);
     if (publisher && input.wakeup)
-      throw new AppError(400, "KMH 唤醒目标由宿主配置提供");
+      throw new AppError(400, "宿主唤醒目标由已认证的发布者提供");
     if (input.wakeup) {
       if (!(input.approvalTargets ?? ["subscriber"]).includes("subscriber"))
         throw new AppError(400, "聊天唤醒需要发起方审批订阅");
@@ -225,20 +176,39 @@ export class TaskPublication {
       publisher?.subscriptionToken ?? randomBytes(32).toString("hex");
     const tokenHash = hashSubscriptionToken(subscriptionToken);
     const source = publisher?.source;
-    const wakeupTarget: DshWakeupTarget | undefined = publisher && {
-      hostId: publisher.hostId,
-      sessionId: publisher.source.targetSessionId ?? publisher.source.sessionId,
-      originTurn: publisher.source.originTurn,
-      publisherSessionId: publisher.source.sessionId,
+    const host = publisher && {
+      wakeupTarget: {
+        hostId: publisher.hostId,
+        sessionId:
+          publisher.source.targetSessionId ?? publisher.source.sessionId,
+      },
+      source: {
+        hostId: publisher.hostId,
+        publisherSessionId: publisher.source.sessionId,
+        originTurn: publisher.source.originTurn,
+      },
     };
     const requestId = source && `mcp:${source.publishRequestId}`;
+    // 保留首发请求的原指纹字段及顺序，存储目标只保留投递身份。
     const fingerprint = createHash("sha256")
-      .update(JSON.stringify([input, wakeupTarget]))
+      .update(
+        JSON.stringify([
+          input,
+          host && {
+            ...host.wakeupTarget,
+            originTurn: host.source.originTurn,
+            publisherSessionId: host.source.publisherSessionId,
+          },
+        ]),
+      )
       .digest("hex");
     const result = this.store.transaction(() => {
       // 原子保存任务、订阅和投递，并复用内容与凭据相同的宿主请求。
       if (publisher && requestId) {
-        const existing = this.store.dshPublication(publisher.hostId, requestId);
+        const existing = this.store.hostPublication(
+          publisher.hostId,
+          requestId,
+        );
         if (existing) {
           const task = this.store.task(existing.taskId);
           if (
@@ -259,16 +229,16 @@ export class TaskPublication {
           return { task, taskTurn: existing.taskTurn, event: undefined };
         }
         if (!publisher.connected)
-          throw new AppError(503, "KMH 宿主尚未连接完成事件流");
+          throw new AppError(503, "唤醒宿主尚未连接完成事件流");
       }
       if (this.store.countActive() >= LIMITS.queue)
         throw new AppError(429, "队列已满");
-      const task = this.store.publish(input, wakeupTarget);
+      const task = this.store.publish(input, host);
       this.store.saveResultSubscriber(task.id, tokenHash);
       if (task.approvalTargets.includes("subscriber"))
         this.store.saveApprovalSubscriber(task.id, tokenHash);
       if (publisher && requestId)
-        this.store.recordDshPublication(
+        this.store.recordHostPublication(
           publisher.hostId,
           requestId,
           fingerprint,
@@ -282,7 +252,7 @@ export class TaskPublication {
       taskId: result.task.id,
       taskTurn: result.taskTurn,
       resultSubscription: subscription,
-      ...(wakeupTarget ? { wakeupTarget } : {}),
+      ...(host ? { wakeupTarget: host.wakeupTarget } : {}),
       ...(input.wakeup ? { wakeup: input.wakeup } : {}),
       ...(result.task.approvalTargets.includes("subscriber")
         ? {

@@ -4,7 +4,7 @@ export const publishTaskToolName = "mcp-mingting-tool";
 export const taskCommandDescription =
   "同一任务的后续沟通使用 append，填写该任务已有的 taskId 和本轮要执行的内容。独立的新任务使用 new，填写标题、发布者和任务内容。后续追加沿用原任务编号。收到本轮结果后，由发布者决定是否继续追加。";
 
-export const dshTaskFields = {
+export const taskFields = {
   title: z.string().trim().min(1).max(160),
   description: z.string().trim().min(1).max(16000),
   publisherName: z.string().trim().min(1).max(80),
@@ -18,28 +18,33 @@ export const dshTaskFields = {
 export const appendTaskSchema = z.strictObject({
   action: z.literal("append"),
   taskId: z.uuid(),
-  description: dshTaskFields.description,
+  description: taskFields.description,
 });
-export const dshTaskCommandSchema = z.union([
-  z.strictObject({ ...dshTaskFields, action: z.literal("new").optional() }),
+export const hostTaskCommandSchema = z.union([
+  z.strictObject({ ...taskFields, action: z.literal("new").optional() }),
   appendTaskSchema,
 ]);
 
-export const dshSessionFields = {
-  // DSH stores the native ID as one path segment and may mint `session-<uuid>`.
-  sessionId: z.string().min(1).max(255),
-  originTurn: z.int().positive(),
-};
+export const hostSessionIdSchema = z.string().min(1).max(255);
+export const publisherTurnSchema = z.union([
+  z.int().positive(),
+  z.string().min(1).max(255),
+]);
 export const publisherContextKey = "mingting.local/publisher-context";
-export const dshPublisherContextSchema = z.strictObject({
-  ...dshSessionFields,
-  targetSessionId: dshSessionFields.sessionId.optional(),
+export const hostPublisherContextSchema = z.strictObject({
+  sessionId: hostSessionIdSchema,
+  originTurn: publisherTurnSchema,
+  targetSessionId: hostSessionIdSchema.optional(),
   publishRequestId: z.string().min(1).max(128),
 });
-export const dshWakeupTargetSchema = z.strictObject({
+export const hostWakeupTargetSchema = z.strictObject({
   hostId: z.uuid(),
-  ...dshSessionFields,
-  publisherSessionId: dshSessionFields.sessionId.optional(),
+  sessionId: hostSessionIdSchema,
+});
+export const publisherSourceSchema = z.object({
+  hostId: hostWakeupTargetSchema.shape.hostId,
+  publisherSessionId: hostSessionIdSchema,
+  originTurn: publisherTurnSchema,
 });
 export const resultSubscriptionSchema = z.object({
   taskId: z.uuid(),
@@ -71,20 +76,12 @@ export const taskResultEventSchema = z.strictObject({
   error: z.string().nullable(),
   endedAt: z.iso.datetime(),
 });
-export const wakeupResultHeader = "x-mingting-wakeup-result";
-
-export const dshPublishSchema = z.strictObject({
-  ...dshTaskFields,
-  ...dshSessionFields,
-  publishRequestId: z.string().min(1).max(128),
-});
-export const dshPublishResultSchema = z.strictObject({ taskId: z.uuid() });
-export const dshReadySchema = z.strictObject({ hostId: z.uuid() });
-export const dshCompletionSchema = z.strictObject({
+export const hostReadySchema = z.strictObject({ hostId: z.uuid() });
+export const hostCompletionSchema = z.strictObject({
   eventId: taskResultEventSchema.shape.eventId,
   taskId: taskResultEventSchema.shape.taskId,
   runId: taskResultEventSchema.shape.runId,
-  ...dshSessionFields,
+  sessionId: hostSessionIdSchema,
   completedAt: z.iso.datetime(),
   taskTurn: z.int().positive().optional(),
   result: taskResultEventSchema
@@ -95,10 +92,10 @@ export const dshCompletionSchema = z.strictObject({
     .optional(),
 });
 const ackFields = {
-  eventId: dshCompletionSchema.shape.eventId,
-  sessionId: dshSessionFields.sessionId,
+  eventId: hostCompletionSchema.shape.eventId,
+  sessionId: hostSessionIdSchema,
 };
-export const dshAckSchema = z.discriminatedUnion("outcome", [
+export const hostAckSchema = z.discriminatedUnion("outcome", [
   z.strictObject({ ...ackFields, outcome: z.literal("accepted") }),
   z.strictObject({
     ...ackFields,
@@ -106,8 +103,8 @@ export const dshAckSchema = z.discriminatedUnion("outcome", [
     reason: z.enum(["session-unavailable"]),
   }),
 ]);
-export const dshAckResultSchema = z.strictObject({ ok: z.literal(true) });
-export type DshPublish = z.infer<typeof dshPublishSchema>;
-export type DshPublisherContext = z.infer<typeof dshPublisherContextSchema>;
-export type DshCompletion = z.infer<typeof dshCompletionSchema>;
-export type DshAck = z.infer<typeof dshAckSchema>;
+export const hostAckResultSchema = z.strictObject({ ok: z.literal(true) });
+export type HostPublisherContext = z.infer<typeof hostPublisherContextSchema>;
+export type PublisherSource = z.infer<typeof publisherSourceSchema>;
+export type HostCompletion = z.infer<typeof hostCompletionSchema>;
+export type HostAck = z.infer<typeof hostAckSchema>;

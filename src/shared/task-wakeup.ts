@@ -1,6 +1,5 @@
 import { z } from "zod";
-import { dshWakeupTargetSchema } from "./dsh-wakeup.js";
-export { dshWakeupTargetSchema } from "./dsh-wakeup.js";
+import { hostWakeupTargetSchema } from "./host-wakeup.js";
 
 export const wakeupTargetSchema = z
   .object({
@@ -33,13 +32,13 @@ export const wakeupEventSchema = z
     acknowledgedAt: z.string().datetime().nullable(),
   })
   .strict();
-export const dshWakeupEventSchema = wakeupEventSchema.extend({
+export const hostWakeupEventSchema = wakeupEventSchema.extend({
   type: z.literal("task.completed"),
   approvalId: z.null(),
-  target: dshWakeupTargetSchema,
+  target: hostWakeupTargetSchema.strip(),
 });
-export type DshWakeupTarget = z.infer<typeof dshWakeupTargetSchema>;
-export type DshWakeupEvent = z.infer<typeof dshWakeupEventSchema>;
+export type HostWakeupTarget = z.infer<typeof hostWakeupTargetSchema>;
+export type HostWakeupEvent = z.infer<typeof hostWakeupEventSchema>;
 export const wakeupHostStatusSchema = z
   .object({
     available: z.boolean(),

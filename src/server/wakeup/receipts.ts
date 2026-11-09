@@ -1,4 +1,4 @@
-import type { DshAck } from "../../shared/dsh-wakeup.js";
+import type { HostAck } from "../../shared/host-wakeup.js";
 import {
   wakeupAcknowledgementSchema,
   type WakeupAcknowledgement,
@@ -7,29 +7,34 @@ import type { Store } from "../storage/store.js";
 import { AppError } from "../tasks/app-error.js";
 import type { WakeupDelivery } from "./task-wakeup.js";
 
-/** 接收 DSH 宿主对完成唤醒的处理结果。 */
-export function acknowledgeDshWakeup(
+/** 接收宿主对完成唤醒的处理结果。 */
+export function acknowledgeHostWakeup(
   store: Store,
   hostId: string,
-  ack: DshAck,
+  ack: HostAck,
 ) {
   store.transaction(() => {
     // 校验事件归属并幂等保存确认，拒绝覆盖已有的不同结果。
-    const event = store.dshWakeup(ack.eventId, hostId);
+    const event = store.hostWakeup(ack.eventId, hostId);
     if (!event || event.target.sessionId !== ack.sessionId)
       throw new AppError(404, "当前宿主和会话没有这条完成事件");
     const status = ack.outcome === "accepted" ? "delivered" : "failed";
     if (event.status === status) return;
     if (event.status !== "pending")
       throw new AppError(409, "该事件已有其他投递结果");
-    store.saveDshWakeup({
+    store.saveHostWakeup({
       ...event,
       status,
       attempts: event.attempts + 1,
       deliveredAt: status === "delivered" ? new Date().toISOString() : null,
       receipt:
         ack.outcome === "accepted"
-          ? { source: "dsh-web", sessionId: ack.sessionId, accepted: true }
+          ? {
+              source: "wakeup-host",
+              hostId,
+              sessionId: ack.sessionId,
+              accepted: true,
+            }
           : null,
       error: ack.outcome === "rejected" ? ack.reason : null,
     });

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { EventEmitter } from "node:events";
 import { LIMITS, type ApprovalSubscription } from "../../shared/protocol.js";
-import { taskResultEventSchema } from "../../shared/dsh-wakeup.js";
+import { taskResultEventSchema } from "../../shared/host-wakeup.js";
 import type { Store } from "../storage/store.js";
 import { AppError } from "./app-error.js";
 

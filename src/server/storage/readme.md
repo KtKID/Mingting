@@ -24,7 +24,7 @@
 | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | [transaction()](store.ts#L115)、[publish()](store.ts#L166)、[deliver()](store.ts#L486)                                    | 提交后通知客户端，失败时回滚。发布保存排队任务和可选会话目标，`deliver()` 追加带游标的任务可领取事件。 |
 | [saveRun()](store.ts#L205)、[saveApproval()](store.ts#L214)、[enqueueWakeup()](store.ts#L253)                             | 保存运行与审批，按任务和运行归属记录完成或待审批事件。写入使用稳定事件 ID。                            |
-| [pendingWakeups()](store.ts#L305)、[pendingDshWakeup()](store.ts#L320)、[browserWakeupSummary()](store.ts#L234)           | 分别读取待调度事件、指定宿主待确认事件，以及网页使用的绑定和投递摘要。                                 |
+| [pendingWakeups()](store.ts#L305)、[pendingHostWakeup()](store.ts#L320)、[browserWakeupSummary()](store.ts#L234)           | 分别读取待调度事件、指定宿主待确认事件，以及网页使用的绑定和投递摘要。                                 |
 | [appendEvent()](store.ts#L400)、[appendRunAudit()](store.ts#L410)、[runAudit()](store.ts#L417)、[detail()](store.ts#L434) | 保存近期事件与按次审计，分页读回旧记录。任务详情汇总各次运行的用量，并保留缺项。                       |
 | [lease()](store.ts#L519)、[saveLease()](store.ts#L534)、[recover()](store.ts#L561)、[close()](store.ts#L585)              | 保存连接器的执行资格和回报进度。重启时中断旧运行、使待审项过期、补发排队任务。关闭时释放数据库。       |
 

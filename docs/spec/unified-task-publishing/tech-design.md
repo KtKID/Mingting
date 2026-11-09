@@ -2,7 +2,7 @@
 
 > 功能依据为 [spec.md](spec.md)，第一阶段聚焦 KMH，见[基线](#baseline)。
 > v1.4 第一阶段设计基线。实现和验收状态见[开发任务](tasks/task-kmh-mcp-publish.md)。
-> 第一阶段覆盖 KMH 会话的统一发布、回执、结果订阅和唤醒。退役旧入口属于第二阶段。
+> 下文保留第一阶段设计基线。第二阶段将网页表单迁到 MCP 并退役两个独立发布接口，当前发布设计见[旧入口退役任务](tasks/task-retire-legacy-publishing.md)，当前唤醒设计见[通用宿主任务](tasks/task-host-wakeup.md)。
 
 ## 第一阶段设计决策
 
@@ -112,7 +112,7 @@ KMH 从会话、轮次和工具调用编号计算稳定的发布请求号。明�
 | `resultSubscription` | `{taskId, subscriptionToken}`，复用 UUID 和 64 位小写十六进制的现有凭据格式 | `task_result_subscribers` 以任务 ID 为主键，存储凭据哈希。宿主发布额外存规范化请求指纹。原始凭据只交给授权调用方 |
 | KMH 唤醒目标 | 持久目标记录含 `hostId`、`sessionId`、`originTurn` 与发单会话 ID。`hostId` 复用已注册 KMH 宿主身份。`sessionId` 为 1–255 字符的原生会话 ID。默认取发单来源，显式指定时校验同一宿主下已授权的已有会话。发单来源单独记录会话及正整数 `originTurn` | 按现有 KMH 绑定格式存于原绑定表。网页详情投影目标和状态摘要 |
 | 结果订阅 | `GET /subscriber/events?taskId=…&view=result`，`Authorization: Bearer …`。校验任务与结果凭据配对 | 首帧 `task.status` 含任务编号与当前状态，结束运行各一帧 `task.completed`，含 `eventId`、`taskId`、`runId`、`status`、`output`、`error`、`endedAt`。无效凭据拒绝，超连接上限沿用 429 |
-| 宿主投递确认 | 复用 [KMH 宿主投递确认契约](../../../src/shared/dsh-wakeup.ts)。按目标宿主鉴权，携带事件编号、目标会话和接收结果，校验事件对应的已结束运行及绑定 | 首次保存投递记录。相同确认幂等，异任务或异宿主请求拒绝。旧确认字段保持兼容 |
+| 宿主投递确认 | 复用 [通用宿主投递确认契约](../../../src/shared/host-wakeup.ts)。按目标宿主鉴权，携带事件编号、目标会话和接收结果，校验事件对应的已结束运行及绑定 | 首次保存投递记录。相同确认幂等，异任务或异宿主请求拒绝。旧确认字段保持兼容 |
 | 凭据及限额 | 第一阶段复用当前配置中的本机宿主身份和凭据文件。连接上限、心跳、输出长度沿用 `LIMITS` | 新增配置限于试点链路选择。事件帧上限从输出限制与 JSON 编码上界推导 |
 
 ## 附录 B　测试用例与覆盖矩阵
@@ -135,7 +135,7 @@ KMH 从会话、轮次和工具调用编号计算稳定的发布请求号。明�
 | --- | --- | --- |
 | feat01 场景1 | [T1](#t1)、[T6](#t6) | 第一阶段已安排，待执行 |
 | feat01 场景2 | [T1](#t1) | 第一阶段已安排，待执行 |
-| feat01 场景3 | [T8](#t8) | 第二阶段已安排，等待切换确认 |
+| feat01 场景3 | [T8](#t8) | 第二阶段已实施，见[退役记录](tasks/task-retire-legacy-publishing.md) |
 | feat01 场景4 | [T2](#t2) | 第一阶段已安排，待执行 |
 | feat01 场景5 | [T9](#t9) | 第一阶段已安排，待执行 |
 | feat02 场景1 | [T3](#t3) | 第一阶段已安排，待执行 |
