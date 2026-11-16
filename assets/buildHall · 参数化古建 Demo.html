@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>buildHall · 参数化古建</title>
+<style>
+:root{--pn:rgba(238,240,236,.93);--fg:#1d2a30;--mu:#5d6b70;--ln:#c4cbc8;--ac:#b3261e;--on:#fff;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--pn:rgba(22,32,37,.9);--fg:#e6ebe8;--mu:#93a3a6;--ln:#33444a;--ac:#d6453a}}
+:root[data-theme="dark"]{--pn:rgba(22,32,37,.9);--fg:#e6ebe8;--mu:#93a3a6;--ln:#33444a;--ac:#d6453a}
+html,body{height:100%;margin:0;overflow:hidden;font-family:"Songti SC","Noto Serif SC","STSong",serif;background:#cfd8d6}
+body{position:relative;color:var(--fg)}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#p{position:absolute;left:12px;top:calc(12px + env(safe-area-inset-top,0px));width:268px;max-height:calc(100% - 24px);overflow:auto;padding:14px 16px;background:var(--pn);border:1px solid var(--ln);border-radius:4px;backdrop-filter:blur(8px);font-size:13px;line-height:1.5}
+h1{font-size:19px;margin:0 0 10px;font-weight:700;letter-spacing:.05em}
+h1 small{font-size:12px;font-weight:400;color:var(--mu);margin-left:8px}
+.r{margin:9px 0}.r>div{display:flex;justify-content:space-between;align-items:baseline}
+.r i{font-style:normal;font-size:11.5px;color:var(--mu)}.r b{color:var(--ac);font-size:15px}
+input[type=range]{width:100%;margin:3px 0 0;accent-color:var(--ac)}
+.g{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin:6px 0}
+button{font:inherit;font-size:12.5px;padding:5px 0;background:transparent;color:var(--fg);border:1px solid var(--ln);border-radius:3px;cursor:pointer}
+button.on{background:var(--ac);border-color:var(--ac);color:var(--on)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--ac);outline-offset:1px}
+.ck{display:flex;gap:6px;align-items:center;margin:8px 0}
+#info{margin:10px 0 0;padding-top:8px;border-top:1px solid var(--ln);color:var(--mu);font-size:12px}
+@media(max-width:640px){#p{left:8px;right:8px;top:auto;bottom:calc(8px + env(safe-area-inset-bottom,0px));width:auto;max-height:46%;padding:10px 12px}.r{margin:6px 0}}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="p">
+<h1>buildHall<small>拖动画面旋转，滚轮缩放</small></h1>
+<div class="r"><div><span>开间 bays</span><b id="vb"></b></div><input type="range" id="bays" min="3" max="9" step="2"><i>对应项目规模</i></div>
+<div class="r"><div><span>进深 depth</span><b id="vd"></b></div><input type="range" id="depth" min="1" max="4" step="1"><i>对应累计成熟度</i></div>
+<div class="r"><div><span>斗拱 tiers</span><b id="vt"></b></div><input type="range" id="tiers" min="0" max="3" step="1"><i>对应活跃度</i></div>
+<div class="r"><span>屋顶 roof</span> <i>对应项目重要度，从低到高</i><div class="g" id="roofs"></div></div>
+<label class="ck"><input type="checkbox" id="dbl"> 重檐</label>
+<div class="g" id="pre"></div>
+<button id="nt" style="width:100%">切换夜景</button>
+<p id="info"></p>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const $=id=>document.getElementById(id), N='零一二三四五六七八九';
+const ROOFS={yingshan:{n:'硬山',t:'g',ox:.3,c:0x59636c},xuanshan:{n:'悬山',t:'g',ox:1.2,c:0x59636c},xieshan:{n:'歇山',t:'x',c:0x2f8f8a},wudian:{n:'庑殿',t:'h',c:0xd9a82e}};
+const PRE={'驿站':[3,1,'yingshan',0,0],'院落':[5,2,'xuanshan',1,0],'官署':[7,3,'xieshan',2,0],'军机阁':[9,4,'wudian',3,1]};
+const S={bays:5,depth:2,roof:'xuanshan',tiers:1,dbl:false};
+let night=false;
+
+const cv=$('c'), R=new THREE.WebGLRenderer({canvas:cv,antialias:true});
+R.setPixelRatio(Math.min(devicePixelRatio,2)); R.shadowMap.enabled=true;
+const sc=new THREE.Scene(), cam=new THREE.PerspectiveCamera(40,1,.5,400);
+const hemi=new THREE.HemisphereLight(0xffffff,0x8a9a78,.8), sun=new THREE.DirectionalLight(0xfff1d6,.9);
+sun.position.set(18,32,22); sun.castShadow=true; sun.shadow.mapSize.set(2048,2048);
+Object.assign(sun.shadow.camera,{left:-34,right:34,top:34,bottom:-34,near:1,far:100}); sun.shadow.bias=-.0006; sun.shadow.normalBias=.06;
+sc.add(hemi,sun);
+
+const mat=(c,o={})=>new THREE.MeshStandardMaterial(Object.assign({color:c,roughness:.9},o));
+const M={stone:mat(0xcfc7b4),red:mat(0xb3261e),wall:mat(0xeadfc6),dark:mat(0x3a2a22),dg:mat(0x2d7fa3),gold:mat(0xc9a24b),
+ glow:mat(0xffd27a,{emissive:0xffb24a,emissiveIntensity:.15}),lan:mat(0xd32a1c,{emissive:0xff3b1a,emissiveIntensity:.3}),
+ ground:mat(0x8fa874),leaf:mat(0x4f7a4a),bark:mat(0x6b4a34)};
+const RM={};for(const k in ROOFS)RM[k]=mat(ROOFS[k].c,{side:THREE.DoubleSide,roughness:.7});
+
+// 静态环境：地面与松树
+const gr=new THREE.Mesh(new THREE.CircleGeometry(70,56),M.ground);gr.rotation.x=-Math.PI/2;gr.receiveShadow=true;sc.add(gr);
+for(let k=0;k<12;k++){const a=k*.55+.3,r=30+(k%3)*6,x=Math.cos(a)*r,z=Math.sin(a)*r;
+ const t=new THREE.Mesh(new THREE.CylinderGeometry(.3,.4,2,6),M.bark);t.position.set(x,1,z);
+ const l=new THREE.Mesh(new THREE.ConeGeometry(2,5.5,7),M.leaf);l.position.set(x,4.6,z);
+ for(const m of[t,l]){m.castShadow=true;sc.add(m)}}
+
+// 屋面：高度场 + 檐口裙边。举折用 s^1.5，檐角上翘用 (u*v)^4
+function roofGeo(t,a,b,H,L,gb){
+ const nx=64,ny=40,P=[],I=[];
+ const f=(x,z)=>{const u=Math.abs(x)/a,v=Math.abs(z)/b,l=L*Math.pow(u*v,4);
+  if(t==='g')return H*Math.pow(1-v,1.5)+l;
+  const d=Math.min(a-Math.abs(x),b-Math.abs(z));
+  if(t==='h')return H*Math.pow(Math.min(1,d/Math.min(a,b)),1.5)+l;
+  const dl=b*.6,hp=.45*H*Math.pow(Math.min(1,d/dl),1.3);
+  return Math.max(hp,Math.abs(x)<=a-dl?H*Math.pow(1-v,1.5):0)+l};
+ for(let j=0;j<=ny;j++)for(let i=0;i<=nx;i++){const x=-a+2*a*i/nx,z=-b+2*b*j/ny;P.push(x,f(x,z),z)}
+ const id=(i,j)=>j*(nx+1)+i;
+ for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){const p=id(i,j),q=id(i+1,j),r=id(i,j+1),s=id(i+1,j+1);I.push(p,r,q,q,r,s)}
+ const B=[];for(let i=0;i<=nx;i++)B.push(id(i,0));for(let j=1;j<=ny;j++)B.push(id(nx,j));
+ for(let i=nx-1;i>=0;i--)B.push(id(i,ny));for(let j=ny-1;j>=1;j--)B.push(id(0,j));
+ for(let k=0;k<B.length;k++){const p=B[k],q=B[(k+1)%B.length],n=P.length/3;
+  const endSeg=t==='g'&&Math.abs(Math.abs(P[p*3])-a)<1e-6&&Math.abs(Math.abs(P[q*3])-a)<1e-6,d=endSeg?gb:.4;
+  for(const s of[p,q])P.push(P[s*3],P[s*3+1],P[s*3+2]);
+  for(const s of[p,q])P.push(P[s*3],P[s*3+1]-d,P[s*3+2]);
+  I.push(n,n+2,n+1,n+1,n+2,n+3)}
+ const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(P,3));g.setIndex(I);g.computeVertexNormals();return g}
+
+// buildHall：几个整数 + 基本模数 → 整座建筑
+let hall=null;
+function buildHall({bays,depth,roof,tiers,dbl}){
+ const g=new THREE.Group(),bw=3.2,dw=2.6,ch=3.6,W=bays*bw,D=depth*dw,y0=1,cfg=ROOFS[roof];
+ const add=(geo,m,x,y,z)=>{const o=new THREE.Mesh(geo,m);o.position.set(x,y,z);o.castShadow=o.receiveShadow=true;g.add(o);return o};
+ const bx=(w,h,d)=>new THREE.BoxGeometry(w,h,d);
+ add(bx(W+3,.5,D+3),M.stone,0,.25,0);add(bx(W+1.8,.5,D+1.8),M.stone,0,.75,0);
+ add(bx(3,.08,24),M.stone,0,.04,D/2+13.5);
+ // 墙与门窗
+ add(bx(W,ch,.25),M.wall,0,y0+ch/2,-D/2);add(bx(W,ch,.25),M.wall,0,y0+ch/2,D/2);
+ for(const s of[-1,1])add(bx(.25,ch,D),M.wall,s*W/2,y0+ch/2,0);
+ const mid=Math.floor(bays/2);
+ for(let i=0;i<bays;i++){const x=-W/2+(i+.5)*bw;
+  if(i===mid)add(bx(bw-1,ch-.9,.16),M.dark,x,y0+(ch-.9)/2,D/2+.08);
+  else add(bx(bw-.9,ch-1.5,.14),M.glow,x,y0+ch/2+.1,D/2+.07)}
+ // 柱网（外圈）+ 阑额 + 斗拱
+ const cg=new THREE.CylinderGeometry(.17,.2,ch,10);
+ for(let i=0;i<=bays;i++)for(let j=0;j<=depth;j++){
+  if(i&&i<bays&&j&&j<depth)continue;
+  const x=-W/2+i*bw,z=-D/2+j*dw,ox=i===0?-1:i===bays?1:0,oz=j===0?-1:j===depth?1:0;
+  add(cg,M.red,x,y0+ch/2,z);
+  for(let t=0;t<tiers;t++){const s=.9+t*.35;add(bx(s,.22,s),M.dg,x+ox*t*.3,y0+ch+.11+t*.24,z+oz*t*.3)}}
+ for(const s of[-1,1]){add(bx(W+.3,.3,.3),M.red,0,y0+ch-.15,s*D/2);add(bx(.3,.3,D+.3),M.red,s*W/2,y0+ch-.15,0)}
+ // 屋顶
+ const rm=RM[roof];let ya=y0+ch+.3+tiers*.24,Wr=W,Dr=D,oh=1.4+tiers*.45;
+ if(dbl){
+  const lo=add(roofGeo('h',W/2+oh,D/2+oh,1.2,.5,0),rm,0,ya,0);
+  const uh=2.8,Wu=W-2.4,Du=D-2.4,yb=ya+.1;
+  add(bx(Wu,uh,Du),M.wall,0,yb+uh/2,0);add(bx(Wu+.3,.3,Du+.3),M.red,0,yb+uh-.15,0);
+  add(bx(Wu*.7,uh*.45,.14),M.glow,0,yb+uh*.5,Du/2+.05);
+  Wr=Wu;Dr=Du;ya=yb+uh+.2;oh=1.6}
+ const a=Wr/2+(cfg.t==='g'?cfg.ox:oh),b=Dr/2+oh,H=b*.6,gb=ya-(y0+ch)+.2;
+ add(roofGeo(cfg.t,a,b,H,cfg.t==='g'?.25:.6,gb),rm,0,ya,0);
+ const rl=cfg.t==='g'?a*2-.2:cfg.t==='h'?2*(a-b):2*(a-b*.6);
+ if(rl>.5)add(bx(rl,.2,.32),M.gold,0,ya+H+.05,0);
+ // 灯笼
+ if(!dbl||true)for(const s of[-1,1]){const e=add(new THREE.SphereGeometry(.28,12,10),M.lan,s*(bw*.5+W/2*0)+s*Math.min(W/2-1,bw*1.5),y0+ch-.7,D/2+oh*.6);e.scale.y=1.25}
+ return {g,W,D,info:`${N[bays]}开间 · ${N[depth]}进深 · ${cfg.n}${dbl?'重檐':''} · 斗拱${N[tiers]}层\n外圈柱 ${2*(bays+1)+2*(depth-1)} 根 · 台基 ${W.toFixed(1)}×${D.toFixed(1)} 模数`}}
+
+function rebuild(){
+ if(hall){sc.remove(hall.g);hall.g.traverse(o=>o.geometry&&o.geometry.dispose())}
+ hall=buildHall(S);sc.add(hall.g);
+ $('info').textContent=hall.info;tdist=Math.max(hall.W,hall.D)*1.1+15;
+ $('vb').textContent=S.bays;$('vd').textContent=S.depth;$('vt').textContent=S.tiers;
+ for(const k of['bays','depth','tiers'])$(k).value=S[k];$('dbl').checked=S.dbl;
+ document.querySelectorAll('#roofs button').forEach(b=>b.classList.toggle('on',b.dataset.k===S.roof))}
+for(const k in ROOFS){const b=document.createElement('button');b.textContent=ROOFS[k].n;b.dataset.k=k;b.onclick=()=>{S.roof=k;rebuild()};$('roofs').appendChild(b)}
+for(const k in PRE){const b=document.createElement('button');b.textContent=k;b.onclick=()=>{const v=PRE[k];Object.assign(S,{bays:v[0],depth:v[1],roof:v[2],tiers:v[3],dbl:!!v[4]});rebuild()};$('pre').appendChild(b)}
+for(const k of['bays','depth','tiers'])$(k).oninput=e=>{S[k]=+e.target.value;rebuild()};
+$('dbl').onchange=e=>{S.dbl=e.target.checked;rebuild()};
+$('nt').onclick=()=>{night=!night;
+ const bg=night?0x0f1a26:0xcfd8d6;sc.background=new THREE.Color(bg);sc.fog=new THREE.Fog(bg,60,150);
+ hemi.intensity=night?.28:.8;sun.intensity=night?.18:.9;sun.color.set(night?0x9db4ff:0xfff1d6);
+ M.glow.emissiveIntensity=night?1.6:.15;M.lan.emissiveIntensity=night?2:.3;M.ground.color.set(night?0x2a3a2c:0x8fa874);M.leaf.color.set(night?0x23402a:0x4f7a4a)};
+sc.background=new THREE.Color(0xcfd8d6);sc.fog=new THREE.Fog(0xcfd8d6,60,150);
+
+// 简易轨道相机
+let th=.7,ph=1.0,dist=34,tdist=34,auto=true;const tg=new THREE.Vector3(0,3.5,0),ptr=new Map();let pd=0;
+cv.onpointerdown=e=>{cv.setPointerCapture(e.pointerId);ptr.set(e.pointerId,e);auto=false;if(ptr.size===2){const[p,q]=[...ptr.values()];pd=Math.hypot(p.clientX-q.clientX,p.clientY-q.clientY)}};
+cv.onpointermove=e=>{if(!ptr.has(e.pointerId))return;const o=ptr.get(e.pointerId);ptr.set(e.pointerId,e);
+ if(ptr.size===2){const[p,q]=[...ptr.values()],d=Math.hypot(p.clientX-q.clientX,p.clientY-q.clientY);tdist=Math.min(90,Math.max(12,tdist*pd/d));pd=d}
+ else{th-=(e.clientX-o.clientX)*.008;ph=Math.min(1.45,Math.max(.2,ph-(e.clientY-o.clientY)*.006))}};
+cv.onpointerup=cv.onpointercancel=e=>ptr.delete(e.pointerId);
+cv.onwheel=e=>{e.preventDefault();tdist=Math.min(90,Math.max(12,tdist*(1+e.deltaY*.001)))};
+function fit(){const w=innerWidth,h=innerHeight;R.setSize(w,h,false);cam.aspect=w/h;cam.updateProjectionMatrix()}
+addEventListener('resize',fit);fit();rebuild();dist=tdist;
+(function loop(){if(auto)th+=.0025;dist+=(tdist-dist)*.08;
+ cam.position.set(tg.x+dist*Math.sin(ph)*Math.sin(th),tg.y+dist*Math.cos(ph),tg.z+dist*Math.sin(ph)*Math.cos(th));cam.lookAt(tg);
+ R.render(sc,cam);requestAnimationFrame(loop)})();
+</script>
+</body>
+</html>
