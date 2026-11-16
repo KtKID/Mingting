@@ -10,7 +10,7 @@
 
 网页表单调用 `POST /mcp` 的 `mcp-mingting-tool` 发单。网页用本机会话访问，提交任务或审批时带 CSRF 令牌，用来核对操作来自这个任务台。 [统一发布](../../../../docs/spec/unified-task-publishing/spec.md#feat01-用统一规则发布任务并取得回执) · [本机安全边界](../../../../README.md#安全限制与验证)
 
-实时更新采用 SSE，也就是服务器在同一条 HTTP 连接上持续推送消息。每次推送的是一份完整的当前状态，网页断线后拿到新快照即可替换原来的显示。完整快照会重复携带列表等内容，服务端把短时间内的多次变更合并成一次推送，慢连接等恢复可写后再补发。 [实时执行设计](../../../../docs/task/task-acp-streaming.md) · [网页重连记录](../../../../docs/task/task-web-reconnect.md)
+实时更新采用 SSE，也就是服务器在同一条 HTTP 连接上持续推送消息。每次推送的是一份完整的当前状态，网页断线后拿到新快照即可替换原来的显示。完整快照会重复携带列表等内容，服务端把短时间内的多次变更合并成一次推送，慢连接等恢复可写后再补发。 [实时执行设计](../../../../docs/spec/harness-subscriptions/tasks/task-acp-streaming.md) · [网页重连记录](../../../../docs/spec/harness-subscriptions/tasks/task-web-reconnect.md)
 
 ## 使用方式
 
@@ -58,4 +58,4 @@
 | [结果订阅与唤醒 feat02](../../../../docs/spec/unified-task-publishing/spec.md#feat02-订阅任务结果)                                        | 网页快照提供已有的唤醒会话、发单轮次和投递状态，供任务详情显示。 [实现记录](../../../../docs/spec/unified-task-publishing/tasks/task-kmh-wakeup-display.md)                                                                |
 | [Codex 审批审计 feat02](../../../../docs/spec/codex-task-settings-and-audit/spec.md#feat02-查看运行过程和工具审批审计)                    | 实时快照提供当前过程，审计路由按单次运行分页查询历史工具与审批。 [审计开发清单](../../../../docs/spec/codex-task-settings-and-audit/tasks/task-run-tool-approval-audit/dev-checklist.md)                                   |
 | [同单多轮与通信计数 feat02](../../../../docs/spec/task-turns-and-seq/spec.md#feat02-查看逐条通信计数与每轮来源)                           | 任务详情按 `seqAfter` 翻阅通信记录，网页操作参与任务收发记账。 [详情协议](../../../../docs/spec/task-turns-and-seq/tech-design.md#contract) · [计数规则](../../../../docs/spec/task-turns-and-seq/tech-design.md#sequence) |
-| [实时执行过程 H5](../../../../docs/HARNESS-SUBSCRIPTIONS.md#h5-实时执行过程) · [审批 A2](../../../../docs/APPROVALS.md#a2-弹窗标题与描述) | 原始功能说明。网页会话保护实时快照，待审快照驱动网页弹窗。 [实时执行任务](../../../../docs/task/task-acp-streaming.md) · [审批任务](../../../../docs/task/task-approvals.md)                                               |
+| [实时执行过程 H5](../../../../docs/HARNESS-SUBSCRIPTIONS.md#h5-实时执行过程) · [审批 A2](../../../../docs/APPROVALS.md#a2-弹窗标题与描述) | 原始功能说明。网页会话保护实时快照，待审快照驱动网页弹窗。 [实时执行任务](../../../../docs/spec/harness-subscriptions/tasks/task-acp-streaming.md) · [审批任务](../../../../docs/spec/approvals/tasks/task-approvals.md)                                               |

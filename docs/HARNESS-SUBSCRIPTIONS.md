@@ -1,6 +1,6 @@
 # Harness 订阅
 
-状态为 Codex、Grok、ZCode、DeepSeek Harness 的 ACP 接入均有真实任务记录。日常服务的启用范围取决于项目配置。[身份订阅与问候验证](task/task-harness-subscriptions.md) · [多执行器接入](task/task-multi-harness-acp.md)
+状态为 Codex、Grok、ZCode、DeepSeek Harness 的 ACP 接入均有真实任务记录。日常服务的启用范围取决于项目配置。[身份订阅与问候验证](spec/harness-subscriptions/tasks/task-harness-subscriptions.md) · [多执行器接入](spec/harness-subscriptions/tasks/task-multi-harness-acp.md)
 
 ## H1 身份
 
@@ -26,26 +26,26 @@ Grok 固定 plan 模式，仅开放 Read。ZCode 桥接器限制为一次文本�
 
 原始事件保留最近300项，正文/思考各保留最近64000字符，工具保留最近100项且输入输出各最多8000字符。持久化过程投影随同一运行的有效、有序通知更新；重连/刷新以 SQLite 当前快照替换网页状态，继续使用原有领取租约、取消与旧会话隔离。慢连接合并更新并等待 drain，超时关闭后可重连。
 
-连接中断后网页会按重连间隔重新建立会话与实时流，临时恢复失败会继续重试；关闭页面或切换任务会清理旧连接（见[恢复任务](task/task-web-reconnect.md)）。
+连接中断后网页会按重连间隔重新建立会话与实时流，临时恢复失败会继续重试；关闭页面或切换任务会清理旧连接（见[恢复任务](spec/harness-subscriptions/tasks/task-web-reconnect.md)）。
 
 ## H6 审批订阅
 
-执行者通过ACP申请审批，任务发起方通过任务专属订阅接收和决定。发布时可多选审批对象，首版启用订阅者、第三方置灰。网页自动弹窗显示两方意见；用户优先，订阅者先决定后保留10秒用户窗口。完整行为、接口与裁决规则见 [审批](APPROVALS.md)，验证见 [任务记录](task/task-approvals.md)。
+执行者通过ACP申请审批，任务发起方通过任务专属订阅接收和决定。发布时可多选审批对象，首版启用订阅者、第三方置灰。网页自动弹窗显示两方意见；用户优先，订阅者先决定后保留10秒用户窗口。完整行为、接口与裁决规则见 [审批](APPROVALS.md)，验证见 [任务记录](spec/approvals/tasks/task-approvals.md)。
 
 ## Changelog
 
 | 日期       | 类型 | 内容                                            | 记录                                                     | 状态   |
 | ---------- | ---- | ----------------------------------------------- | -------------------------------------------------------- | ------ |
 | 2026-11-01 | 修复 | H3原生双向审批、项目OAuth请求授权、拒绝状态同步 | 修复报告（本机归档） | 已完成 |
-| 2026-11-01 | 新增 | H6发起方审批订阅、弹窗与十秒用户优先窗口        | [任务](task/task-approvals.md)                           | 已完成 |
+| 2026-11-01 | 新增 | H6发起方审批订阅、弹窗与十秒用户优先窗口        | [任务](spec/approvals/tasks/task-approvals.md)                           | 已完成 |
 
 ### 历史变更
 
 | 日期       | 类型      | 内容                                               | 记录                                       | 状态                         |
 | ---------- | --------- | -------------------------------------------------- | ------------------------------------------ | ---------------------------- |
-| 2026-11-01 | 新增      | H1–H4 身份订阅、目标领取、真实问候与本机部署       | [task](task/task-harness-subscriptions.md) | 部分完成，ZCode 模型执行阻塞 |
-| 2026-11-01 | 修复      | H3 ZCode 账户绑定、隔离环境与 GLM-5.3 完整问候     | [qdev](task/task-zcode-model-selection.md) | 已完成                       |
-| 2026-11-01 | 修改/新增 | H3–H5 ACP 接入、项目 HOME 隔离、流式回答/思考/工具 | [qdev](task/task-acp-streaming.md)         | 已完成                       |
+| 2026-11-01 | 新增      | H1–H4 身份订阅、目标领取、真实问候与本机部署       | [task](spec/harness-subscriptions/tasks/task-harness-subscriptions.md) | 部分完成，ZCode 模型执行阻塞 |
+| 2026-11-01 | 修复      | H3 ZCode 账户绑定、隔离环境与 GLM-5.3 完整问候     | [qdev](spec/harness-subscriptions/tasks/task-zcode-model-selection.md) | 已完成                       |
+| 2026-11-01 | 修改/新增 | H3–H5 ACP 接入、项目 HOME 隔离、流式回答/思考/工具 | [qdev](spec/harness-subscriptions/tasks/task-acp-streaming.md)         | 已完成                       |
 
 ## 使用本机部署
 
@@ -111,9 +111,9 @@ Codex/Grok 首次部署执行 `node --import tsx scripts/prepare-harness-local.t
 
 ## ACP 实时展示实测
 
-2026-11-01 的[本轮任务](task/task-acp-streaming.md)已完成qdev。经 MCP 指定 Codex/Grok/ZCode，各自产生一个独立运行，读取项目 HELLO.txt 并问候；三项均成功。网页 SSE 在结束前收到正文与工具，Grok/ZCode同时有思考内容；本次Codex思考为空。刷新后快照一致，桌面与手机6项交互通过，自动测试40项通过。实际链路（本机归档）、接入兼容性及隔离边界（本机归档）记录协议来源和历史差异。
+2026-11-01 的[本轮任务](spec/harness-subscriptions/tasks/task-acp-streaming.md)已完成qdev。经 MCP 指定 Codex/Grok/ZCode，各自产生一个独立运行，读取项目 HELLO.txt 并问候；三项均成功。网页 SSE 在结束前收到正文与工具，Grok/ZCode同时有思考内容；本次Codex思考为空。刷新后快照一致，桌面与手机6项交互通过，自动测试40项通过。实际链路（本机归档）、接入兼容性及隔离边界（本机归档）记录协议来源和历史差异。
 
-2026-11-01 H5恢复修复：关闭的实时流与临时会话恢复失败均持续重试；已完成，见[恢复qdev](task/task-web-reconnect.md)。
+2026-11-01 H5恢复修复：关闭的实时流与临时会话恢复失败均持续重试；已完成，见[恢复qdev](spec/harness-subscriptions/tasks/task-web-reconnect.md)。
 
 ## 多执行器设置和审计
 
@@ -129,10 +129,10 @@ DeepSeek 以 `DeepSeek` 加入 `TASK_HARNESSES`。宿主需要可运行的 `dsh`
 
 ### 变更记录
 
-- 2026-11-06 接入 Grok、ZCode 和 DeepSeek Harness 的统一运行审计。三家真实读取通过，ZCode 实测原生审批。正式启用待部署。[任务](task/task-multi-harness-acp.md)
+- 2026-11-06 接入 Grok、ZCode 和 DeepSeek Harness 的统一运行审计。三家真实读取通过，ZCode 实测原生审批。正式启用待部署。[任务](spec/harness-subscriptions/tasks/task-multi-harness-acp.md)
 
 ## 离线回归
 
 将真实运行证据提取为测试夹具，保留设置、可观测事件、用量字段与审批选项。回放通过本地 ACP 子进程驱动明庭连接器、适配器与 SQLite，供默认后端回归运行。执行 `npm run test:unit`，或用 `node --import tsx --test tests/acp-offline-replay.test.ts` 只跑五条录制用例。测试读取仓库中的夹具，模型与工具由录制结果提供。
 
-- 2026-11-06 新增真实 ACP 运行离线回放，五条录制用例及默认后端回归通过。[任务](task/task-acp-offline-replay.md)
+- 2026-11-06 新增真实 ACP 运行离线回放，五条录制用例及默认后端回归通过。[任务](spec/harness-subscriptions/tasks/task-acp-offline-replay.md)

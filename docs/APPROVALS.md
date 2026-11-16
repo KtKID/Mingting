@@ -48,26 +48,26 @@ ACP v1 保留原始 `toolCall` 和 `options`。执行者可在 ACP 请求的 `_m
 
 将已完成的真实 ZCode 审批录制为只读夹具，保留源任务、请求、返回和哈希。测试在日常60390平台重新发布带“审批回放”标记的任务，使用独立回放执行身份；模型与文件工具采用录制结果，平台发布、订阅、ACP 往返、持久化、网页按钮和十秒窗口沿用真实链路。四种双方意见组合、用户先决定、订阅者十秒回退、刷新及取消逐项核对。
 
-同源 `/approval-tests/` 提供浅色 HTML 测试记录，展示用例矩阵、逐步截图、时间线和断言，并链接到任务详情。原始真实数据继续保留。[回放任务记录](task/task-approval-replay.md)记录本轮实施和结果。
+同源 `/approval-tests/` 提供浅色 HTML 测试记录，展示用例矩阵、逐步截图、时间线和断言，并链接到任务详情。原始真实数据继续保留。[回放任务记录](spec/approvals/tasks/task-approval-replay.md)记录本轮实施和结果。
 
 ## A5 默认自动回归与批次留存
 
 任务台标题旁提供“审批回放与测试记录”。默认 `npm test` 和 `npm run check` 自动运行后端与离线 ACP 回放、构建、桌面和手机网页回归、R1–R10 浏览器审批。发布、审批回传与落库由接口测试覆盖。发布表单、审批弹窗、操作按钮、结果展示与重连由 Playwright 操作。模型和工具使用测试输入。审批专项命令复用同一运行器。
 
-GitHub Actions 配置在 PR 和 main 更新时运行同一个 `npm test`，保留批次证据。默认批次的网页阶段缺失或失败时，整体结果为失败。[自动回归任务](task/task-automatic-regression.md)
+GitHub Actions 配置在 PR 和 main 更新时运行同一个 `npm test`，保留批次证据。默认批次的网页阶段缺失或失败时，整体结果为失败。[自动回归任务](spec/approvals/tasks/task-automatic-regression.md)
 
-每次运行创建独立批次，保留输入录制与源数据哈希、代码基线、逐例任务快照、判定、截图、trace、日志及退出码。成功、失败、中断和未执行分别记录，历史批次保持完整。回放页可切换批次；60391隔离回归的结果通过归档快照查看，60390既有回放任务保留直接链接。[默认回归任务](task/task-approval-default-regression.md)维护本次实现与验证。
+每次运行创建独立批次，保留输入录制与源数据哈希、代码基线、逐例任务快照、判定、截图、trace、日志及退出码。成功、失败、中断和未执行分别记录，历史批次保持完整。回放页可切换批次；60391隔离回归的结果通过归档快照查看，60390既有回放任务保留直接链接。[默认回归任务](spec/approvals/tasks/task-approval-default-regression.md)维护本次实现与验证。
 
 ## 验证与变更
 
-实现及验证记录：[任务记录](task/task-approvals.md)。协议依据：[ACP v1 工具权限请求](https://agentclientprotocol.com/protocol/v1/tool-calls#requesting-permission)。自动化验证使用真实HTTP/MCP、SQLite、浏览器及通过官方SDK通信的ACP测试子进程；模型推理和文件操作使用模拟结果。
+实现及验证记录：[任务记录](spec/approvals/tasks/task-approvals.md)。协议依据：[ACP v1 工具权限请求](https://agentclientprotocol.com/protocol/v1/tool-calls#requesting-permission)。自动化验证使用真实HTTP/MCP、SQLite、浏览器及通过官方SDK通信的ACP测试子进程；模型推理和文件操作使用模拟结果。
 
 ZCode 的真实接入使用项目 ACP 桥接器与原生 `app-server --stdio` 双向通信。原生权限请求、原始选项响应和拒绝后的工具状态均按同一会话回传；重复请求复用同一审批，取消和无效选项按拒绝收口。当前运行范围为 plan 模式的 Read 工具、项目内 BigModel OAuth Coding Plan 账户。真实测试（本机归档）覆盖十秒后采纳 Codex 同意、倒计时内用户拒绝、用户先拒绝；真实 ZCode 模型与工具参与执行。
 
 | 日期       | 类型 | 内容                                                       | 记录                                                     | 状态   |
 | ---------- | ---- | ---------------------------------------------------------- | -------------------------------------------------------- | ------ |
-| 2026-11-06 | 修改 | A5 纳入桌面与手机网页回归，并增加 GitHub 自动触发          | [任务](task/task-automatic-regression.md)                 | 本地通过 |
-| 2026-11-01 | 新增 | A5默认十条自动回归、批次留存与明显入口                     | [任务](task/task-approval-default-regression.md)         | 已完成 |
-| 2026-11-01 | 新增 | A4真实数据复用、十条可见回放和HTML记录                     | [任务](task/task-approval-replay.md)                     | 已完成 |
+| 2026-11-06 | 修改 | A5 纳入桌面与手机网页回归，并增加 GitHub 自动触发          | [任务](spec/approvals/tasks/task-automatic-regression.md)                 | 本地通过 |
+| 2026-11-01 | 新增 | A5默认十条自动回归、批次留存与明显入口                     | [任务](spec/approvals/tasks/task-approval-default-regression.md)         | 已完成 |
+| 2026-11-01 | 新增 | A4真实数据复用、十条可见回放和HTML记录                     | [任务](spec/approvals/tasks/task-approval-replay.md)                     | 已完成 |
 | 2026-11-01 | 修复 | ZCode 原生权限请求与 ACP 双向转换、拒绝后工具状态收口      | 修复报告（本机归档） | 已完成 |
-| 2026-11-01 | 新增 | A1任务审批对象与发起方订阅、A2自动弹窗、A3用户优先十秒窗口 | [任务](task/task-approvals.md)                           | 已完成 |
+| 2026-11-01 | 新增 | A1任务审批对象与发起方订阅、A2自动弹窗、A3用户优先十秒窗口 | [任务](spec/approvals/tasks/task-approvals.md)                           | 已完成 |

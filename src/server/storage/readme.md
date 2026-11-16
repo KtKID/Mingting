@@ -39,4 +39,4 @@
 | [Codex 审计与用量](../../../docs/spec/codex-task-settings-and-audit/spec.md) | 按运行保存审计并聚合用量。[审计存储任务](../../../docs/spec/codex-task-settings-and-audit/tasks/task-run-audit-foundation/dev-checklist.md) |
 | [统一发单与结果订阅](../../../docs/spec/unified-task-publishing/spec.md)     | 保存结果订阅凭据、历史运行及唤醒状态。[存储设计](../../../docs/spec/unified-task-publishing/tech-design.md)                                 |
 | [DSH 原会话唤醒](../../../docs/spec/dsh-task-wakeups/spec.md)                | 保存宿主、会话、轮次和完成事件，供重连补收。[开发记录](../../../docs/spec/dsh-task-wakeups/tasks/task-dsh-wakeups/dev-checklist.md)         |
-| [审批回归与批次留存](../../../docs/APPROVALS.md#a5-默认自动回归与批次留存)   | 审批归档索引的功能说明。[归档开发记录](../../../docs/task/task-approval-default-regression.md)                                              |
+| [审批回归与批次留存](../../../docs/APPROVALS.md#a5-默认自动回归与批次留存)   | 审批归档索引的功能说明。[归档开发记录](../../../docs/spec/approvals/tasks/task-approval-default-regression.md)                                              |

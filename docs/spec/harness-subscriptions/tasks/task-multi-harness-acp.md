@@ -1,7 +1,12 @@
 # ZCode、Grok 与 DeepSeek Harness 接入统一 ACP 审计
 
-> 功能归属 [Harness 订阅与实时过程](../HARNESS-SUBSCRIPTIONS.md#多执行器设置和审计)
-> 设计基线 [Codex 已确认的 ACP 统一层](../spec/codex-task-settings-and-audit/tech-design.md)
+> 所属 spec：[执行器订阅（Harness 订阅）](../spec.md)
+> 状态：待验证（原文：实现与隔离真实任务完成，正式启用待部署）
+> 执行者：未知
+> 创建：2026-11-06
+
+> 功能归属 [Harness 订阅与实时过程](../../../HARNESS-SUBSCRIPTIONS.md#多执行器设置和审计)
+> 设计基线 [Codex 已确认的 ACP 统一层](../../codex-task-settings-and-audit/tech-design.md)
 > 2026-11-06 · 实现与隔离真实任务完成，正式启用待部署
 
 ## ① 需求与变更
@@ -31,4 +36,4 @@ D3 明庭统一计数和来源。Grok 取 prompt 元数据，ZCode 取一次原�
 
 ## ⑤ 验证结果
 
-三家真实读取、正文流、模型与档位回执、上下文、工具和 Usage 对账通过。ZCode 实测 Read 审批。Grok 和 DeepSeek 的读取由上游直接执行，审批往返由受控用例覆盖。DeepSeek 的思考内容与思考 token 在本次回合缺报。正式服务启用与项目登录更新保留为部署事项。[统一测试报告](../../reports/multi-harness-acp/20261106-qdev/test-report.md)
+三家真实读取、正文流、模型与档位回执、上下文、工具和 Usage 对账通过。ZCode 实测 Read 审批。Grok 和 DeepSeek 的读取由上游直接执行，审批往返由受控用例覆盖。DeepSeek 的思考内容与思考 token 在本次回合缺报。正式服务启用与项目登录更新保留为部署事项。[统一测试报告](../../../../reports/multi-harness-acp/20261106-qdev/test-report.md)

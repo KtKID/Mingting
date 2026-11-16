@@ -6,7 +6,7 @@
 
 连接人与 Agent 的共享任务工作空间。当前版本：MVP 0.2，含本机 Harness 身份订阅扩展。
 
-本机部署地址 **http://127.0.0.1:60390**，MCP 地址 **http://127.0.0.1:60390/mcp**。本机真实验证：Codex、Grok、ZCode 定向问候均完成；ZCode 使用 GLM-5.3，模型、账户绑定与运行目录由项目内隔离配置提供。详细接口、启停方法和证据见 [Harness 订阅](docs/HARNESS-SUBSCRIPTIONS.md) 与 [qdev 任务](docs/task/task-harness-subscriptions.md)。
+本机部署地址 **http://127.0.0.1:60390**，MCP 地址 **http://127.0.0.1:60390/mcp**。本机真实验证：Codex、Grok、ZCode 定向问候均完成；ZCode 使用 GLM-5.3，模型、账户绑定与运行目录由项目内隔离配置提供。详细接口、启停方法和证据见 [Harness 订阅](docs/HARNESS-SUBSCRIPTIONS.md) 与 [qdev 任务](docs/spec/harness-subscriptions/tasks/task-harness-subscriptions.md)。
 
 [当前聊天事件唤醒实验](docs/CHAT-WAKEUPS.md)包含聊天绑定、审批和完成事件持久化、ACP 原会话恢复及回放核对。桌面当前会话的实际唤醒仍待验收。
 
@@ -242,7 +242,7 @@ npm test
 
 初次运行可用 `npm exec -- playwright install chromium` 准备浏览器。已有 Chromium 可用 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 指定。
 
-测试使用真实 HTTP MCP、真实 HTTP SSE、独立连接器进程以及假 ACP 子进程，真实问候验证另见 [本次 qdev 记录](docs/task/task-harness-subscriptions.md)。历史测试事实见 [测试报告](docs/TEST-REPORT.md)。
+测试使用真实 HTTP MCP、真实 HTTP SSE、独立连接器进程以及假 ACP 子进程，真实问候验证另见 [本次 qdev 记录](docs/spec/harness-subscriptions/tasks/task-harness-subscriptions.md)。历史测试事实见 [测试报告](docs/TEST-REPORT.md)。
 
 源码包不含 node_modules、.env、数据库、凭据或运行数据。既有私有 Sites 页面仍是浏览器本地演示，此次后端更新不会使 Sites 自动具备 Node 子进程能力，也未自动改动或部署它。
 

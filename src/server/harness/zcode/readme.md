@@ -8,7 +8,7 @@
 
 ## 设计理念
 
-原生审批选项保留原 ID 和响应内容，明庭用户选中的决定可以准确交还给 ZCode。账户和模型设置使用项目内副本，短期凭据仅保留在内存。各处先核对会话或账号身份再处理请求，避免把另一轮审批或凭据串到当前运行。 [多执行器设计](../../../../docs/task/task-multi-harness-acp.md) · [账号绑定记录](../../../../docs/task/task-zcode-model-selection.md)
+原生审批选项保留原 ID 和响应内容，明庭用户选中的决定可以准确交还给 ZCode。账户和模型设置使用项目内副本，短期凭据仅保留在内存。各处先核对会话或账号身份再处理请求，避免把另一轮审批或凭据串到当前运行。 [多执行器设计](../../../../docs/spec/harness-subscriptions/tasks/task-multi-harness-acp.md) · [账号绑定记录](../../../../docs/spec/harness-subscriptions/tasks/task-zcode-model-selection.md)
 
 ## 使用方式
 
@@ -25,5 +25,5 @@
 
 | Spec 或功能记录                                                                                                         | 与模块的关系                                                                                                                                                                                      |
 | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [Harness 执行 H3](../../../../docs/HARNESS-SUBSCRIPTIONS.md#h3-执行)                                                    | ZCode 原生桥接、Read 权限和审批回传的功能说明。[接入记录](../../../../docs/task/task-multi-harness-acp.md)                                                                                        |
-| [Codex 任务消耗与上下文](../../../../docs/spec/codex-task-settings-and-audit/spec.md#feat03-查看并对账任务消耗与上下文) | Codex 需求提供共用计量口径。ZCode 映射的交付依据是多执行器接入与 [离线回放记录](../../../../docs/task/task-acp-offline-replay.md)。技术设计中的自有桥回包描述是历史调研，当前实现见本页映射文件。 |
+| [Harness 执行 H3](../../../../docs/HARNESS-SUBSCRIPTIONS.md#h3-执行)                                                    | ZCode 原生桥接、Read 权限和审批回传的功能说明。[接入记录](../../../../docs/spec/harness-subscriptions/tasks/task-multi-harness-acp.md)                                                                                        |
+| [Codex 任务消耗与上下文](../../../../docs/spec/codex-task-settings-and-audit/spec.md#feat03-查看并对账任务消耗与上下文) | Codex 需求提供共用计量口径。ZCode 映射的交付依据是多执行器接入与 [离线回放记录](../../../../docs/spec/harness-subscriptions/tasks/task-acp-offline-replay.md)。技术设计中的自有桥回包描述是历史调研，当前实现见本页映射文件。 |
