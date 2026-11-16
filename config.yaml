@@ -1,3 +1,10 @@
 tasks:
   # Maximum UTF-16 code units per output or error in a wakeup notification.
   wakeupResultTextLimit: 5000
+  # 单次执行回报的完整 JSON 请求体上限，单位为字节。
+  runReportBodyBytes: 1114112
+  # MCP 单次等待审批的默认时长和上限，单位为毫秒。
+  approvalWaitMs: 25000
+web:
+  # 允许嵌入明庭任务台的本机 KMH 来源，包含端口。
+  frameAncestor: http://127.0.0.1:60000

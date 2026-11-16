@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const publishTaskToolName = "mcp-mingting-tool";
 export const taskCommandDescription =
-  "同一任务的后续沟通使用 append，填写该任务已有的 taskId 和本轮要执行的内容。独立的新任务使用 new，填写标题、发布者和任务内容。后续追加沿用原任务编号。收到本轮结果后，由发布者决定是否继续追加。";
+  "同一任务的后续沟通使用 append，填写该任务已有的 taskId 和本轮要执行的内容。独立的新任务使用 new，填写标题、发布者和任务内容。后续追加沿用原任务编号。收到本轮结果后，由发布者决定是否继续追加。new 不填 targetHarness 时任务登记为待派发，不触发任何执行者；填 targetHarness 则立即派发给该执行者。dispatch 用于把待派发任务派发给指定执行者（可省略以沿用任务已指定的执行者）。";
 
 export const taskFields = {
   title: z.string().trim().min(1).max(160),
@@ -19,6 +19,11 @@ export const appendTaskSchema = z.strictObject({
   action: z.literal("append"),
   taskId: z.uuid(),
   description: taskFields.description,
+});
+export const dispatchTaskSchema = z.strictObject({
+  action: z.literal("dispatch"),
+  taskId: appendTaskSchema.shape.taskId,
+  targetHarness: taskFields.targetHarness.optional(),
 });
 export const hostTaskCommandSchema = z.union([
   z.strictObject({ ...taskFields, action: z.literal("new").optional() }),

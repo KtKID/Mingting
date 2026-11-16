@@ -14,6 +14,12 @@ ACP 是明庭和执行器交换会话、输出及审批消息的协议。这个�
 
 执行器接入通过 [runtime()](../runtime.ts#L13) 构造适配器。连接器调用 `adapter.executeTask(text, signal, hooks, settings, acknowledge)`，通过 `hooks` 接收会话、进度与审批请求，最终取得结束原因和可用的用量。需使用已知会话时走 `execute()` 的会话 ID 参数。离线回归见 [录制回放测试](../../../../tests/acp-offline-replay.test.ts)。
 
+### 运行诊断
+
+本机服务日志按 `runId` 查找 `acp.request.started`、`acp.request.finished` 和 `acp.cleanup.finished`。每次请求记录 ACP 方法、连接内序号、预算、耗时和结果。进程收尾单独记录耗时及退出码或信号。空闲能力探测只有 ACP 进程编号，实际任务还带任务 ID 和轮次。日志字段限于执行元数据，执行器的原始错误流继续直接排空。
+
+需要拆分 Codex 内部耗时时，用独立 Codex 状态目录和测试进程采集 `thread/start` 的请求、回复及 app-server 各阶段的开始与结束。Codex 0.165.0 支持通过 `LOG_FORMAT=json` 和定向 `RUST_LOG` 输出阶段日志。ACP 自带的 `APP_SERVER_LOGS` 会记录原始消息，仅用于受限隔离探测，探测止于会话创建。常驻服务使用上面的元数据日志。
+
 ## 代码说明
 
 ### [acp-adapter.ts](acp-adapter.ts)

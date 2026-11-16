@@ -6,9 +6,9 @@
 
 常驻连接器通过本机 HTTP SSE 携带 harnessName 与 ownerId 登记在线身份。连接关闭后对应订阅下线。MCP `list_harnesses` 提供当前在线列表，运行历史保存实际执行身份。支持 Codex、ZCode、Grok 和 DeepSeek 四个执行目标。身份由可信本机进程登记。
 
-## H2 定向发布
+## H2 定向发布与手动派发
 
-MCP `mcp-mingting-tool` 可携带 targetHarness。服务对通知和领取同时匹配目标名称，大小写无关。指定目标离线时任务保持排队，目标恢复订阅后回放。省略目标沿用原来的可用连接器领取方式。既有单任务串行槽位与所有权校验继续生效。
+MCP `mcp-mingting-tool` 可携带 targetHarness。携带目标时立即派发：服务对通知和领取同时匹配目标名称，大小写无关；指定目标离线时任务保持排队，目标恢复订阅后回放。省略目标时任务只登记为待派发（`awaiting_dispatch`），不产生通知、不触发任何执行者；之后可经网页按钮或 MCP `action:"dispatch"` 派发给指定执行者，派发要求解析出目标，未指定目标且任务无目标时拒绝。既有单任务串行槽位与所有权校验继续生效，待派发任务不占执行队列上限。[任务中台登记与派发](spec/task-board-dispatch/spec.md)
 
 ## H3 执行
 

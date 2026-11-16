@@ -53,10 +53,15 @@ async function fixture(fail = false) {
     description: "只读",
     publisherName: "Codex",
     wakeup: target,
+    targetHarness: "Codex",
   });
   const subscription = published.approvalSubscription;
   if (!subscription) throw new Error("missing approval subscription");
   const owner = { ownerId: randomUUID(), claimId: randomUUID() };
+  platform.service.registerHarness({
+    ownerId: owner.ownerId,
+    harnessName: "Codex",
+  });
   const { run } = platform.service.claim(published.taskId, owner);
   platform.service.report(run.id, owner, 1, {
     type: "session",
@@ -592,6 +597,7 @@ test("W9 HTTP MCP publishes a bound task and the authenticated browser sees wake
         description: "Read README",
         publisherName: "Codex",
         wakeup: target,
+        targetHarness: "Codex",
       },
     });
     assert.notEqual(publish.isError, true);
@@ -642,6 +648,10 @@ test("W9 HTTP MCP publishes a bound task and the authenticated browser sees wake
     });
     assert.equal(bad.isError, true);
     const owner = { ownerId: randomUUID(), claimId: randomUUID() };
+    p.service.registerHarness({
+      ownerId: owner.ownerId,
+      harnessName: "Codex",
+    });
     const { run } = p.service.claim(receipt.taskId, owner);
     p.service.report(run.id, owner, 1, {
       type: "session",

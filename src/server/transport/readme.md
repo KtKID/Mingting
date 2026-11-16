@@ -14,11 +14,15 @@
 
 启动 [服务端](../readme.md#使用方式) 后，网页从 `GET /api/bootstrap` 建立浏览器会话。MCP 客户端连接 `POST /mcp` 并调用 `mcp-mingting-tool`，成功时取得任务链接和订阅凭据。接入示例见 [MCP 发布指南](../../../README.md#mcp-发布与在线身份查询)。各唤醒宿主准备各自的 ID 和令牌，见 [通用唤醒操作入口](../../../docs/CHAT-WAKEUPS.md#通用宿主唤醒)。
 
+## KMH 内嵌
+
+在 `config.yaml` 的 `web.frameAncestor` 填写 KMH Web 的完整本机来源，如 `http://127.0.0.1:60000`，并重启明庭。此字段只接受 `127.0.0.1` 上的单个 HTTP 来源，省略时禁止 iframe 嵌入。浏览器 API 继续校验明庭自身的 Origin 和 CSRF。
+
 ## 代码说明
 
 - [http.ts](http.ts) 的 [createPlatform(config)](http.ts#L26) 创建数据库、任务服务和 Express 应用，挂载各路由和全局中间件，返回 `app`、`service`、`store` 供启动入口和测试使用。
-- [mcp.ts](mcp.ts) 提供普通 MCP 入口，处理新建和追加任务、在线执行器查询、审批及唤醒工具。发单规则由 `TaskService` 维护，审批决定与订阅 HTTP 入口共用 [decision.ts](subscriber/decision.ts)。
-- [browser-api](browser-api/) 提供网页任务 API。[router.ts](browser-api/router.ts) 注册任务和审批接口，[session.ts](browser-api/session.ts) 管理会话和 CSRF，[events.ts](browser-api/events.ts) 合并变更并推送网页快照。
+- [mcp.ts](mcp.ts) 提供普通 MCP 入口，处理新建、追加和派发任务、在线执行器查询、审批及唤醒工具。发单规则由 `TaskService` 维护，审批决定与订阅 HTTP 入口共用 [decision.ts](subscriber/decision.ts)。
+- [browser-api](browser-api/) 提供网页任务 API。[router.ts](browser-api/router.ts) 注册任务、派发、取消、重试和审批接口，[session.ts](browser-api/session.ts) 管理会话和 CSRF，[events.ts](browser-api/events.ts) 合并变更并推送网页快照。
 - [subscriber](subscriber/) 提供发起方的 HTTP 接口。[router.ts](subscriber/router.ts) 校验任务订阅令牌，推送审批或结果状态，补发已完成事件，并接收订阅者的审批决定。
 - [connector.ts](connector.ts) 提供执行器接口，按游标重放待领取任务，并处理认领、租约心跳、进度与结果回报和工具审批。
 - [http-middleware.ts](http-middleware.ts) 处理全局请求防护与错误响应。[web-assets.ts](web-assets.ts) 提供网页和审批回归报告资源。
@@ -29,5 +33,6 @@
 | Spec                                                                                                         | 与模块的关系                                                                                                                                                          |
 | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [统一发单与结果订阅](../../../docs/spec/unified-task-publishing/spec.md) | 发单统一走 MCP，订阅接口支持补收。[旧入口退役记录](../../../docs/spec/unified-task-publishing/tasks/task-retire-legacy-publishing.md) |
+| [任务中台登记与派发](../../../docs/spec/task-board-dispatch/spec.md)                                          | 不填执行者的发单登记为待派发，网页与 MCP 派发接口在此目录接入。                                                                                                        |
 | [DSH 原会话唤醒](../../../docs/spec/dsh-task-wakeups/spec.md)                                                | 规定宿主记录发起会话、完成后回原会话及去重。[鉴权和宿主事件设计](../../../docs/spec/dsh-task-wakeups/tech-design.md)                                                  |
 | [Codex 审批审计](../../../docs/spec/codex-task-settings-and-audit/spec.md#feat02-查看运行过程和工具审批审计) | 网页按任务和运行查询审计，接口会核对归属。[审计任务记录](../../../docs/spec/codex-task-settings-and-audit/tasks/task-run-tool-approval-audit/dev-checklist.md)        |

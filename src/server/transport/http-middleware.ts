@@ -1,10 +1,17 @@
-import type { ErrorRequestHandler, RequestHandler } from "express";
+import type { ErrorRequestHandler, RequestHandler, Response } from "express";
 import { ZodError } from "zod";
 import { LIMITS } from "../../shared/protocol.js";
 import { AppError } from "../tasks/service.js";
 
+const shortRequestSlots = new WeakMap<Response, () => void>();
+
+/** 已取得自己的订阅或等待名额的请求可以交回普通请求名额。 */
+export function releaseShortRequestSlot(response: Response) {
+  shortRequestSlots.get(response)?.();
+}
+
 /** 为一个平台实例校验本机请求、管理并发名额并设置安全头。 */
-export function localHttpGuard(): RequestHandler {
+export function localHttpGuard(frameAncestor?: string): RequestHandler {
   let inflight = 0;
   return (req, res, next) => {
     // 限制本机来源与并发数，并给响应设置浏览器安全头。
@@ -28,22 +35,18 @@ export function localHttpGuard(): RequestHandler {
     if (inflight >= LIMITS.httpConcurrent)
       return res.status(429).json({ error: "请求过多" });
     inflight++;
-    let released = false;
     /** 在请求完成或连接关闭时只归还一次并发名额。 */
     const release = () => {
-      if (!released) {
-        released = true;
-        inflight--;
-      }
+      if (shortRequestSlots.delete(res)) inflight--;
     };
+    shortRequestSlots.set(res, release);
     res.once("finish", release);
     res.once("close", release);
     res.set({
       "Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff",
       "Referrer-Policy": "no-referrer",
-      "Content-Security-Policy":
-        "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+      "Content-Security-Policy": `default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors ${frameAncestor ?? "'none'"}`,
     });
     next();
   };

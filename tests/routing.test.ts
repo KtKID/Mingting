@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
@@ -11,16 +11,18 @@ import { createPlatform } from "../src/server/transport/http.js";
 import { subscribe, post } from "../src/connector/transport.js";
 import {
   claimResultSchema,
+  heartbeatResultSchema,
   LIMITS,
   publishResultSchema,
 } from "../src/shared/protocol.js";
 
-async function fixture() {
+async function fixture(configPath?: string) {
   const dir = await mkdtemp(join(tmpdir(), "mingting-routing-"));
   const p = createPlatform({
     dbPath: join(dir, "tasks.sqlite"),
     workspace: dir,
     mode: "fake",
+    configPath,
   });
   const server = createServer(p.app);
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -61,6 +63,55 @@ async function fixture() {
     },
   };
 }
+
+test("KMH frame policy allows one loopback origin while retaining request guards", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "mingting-frame-policy-"));
+  const configPath = join(dir, "config.yaml");
+  try {
+    for (const frameAncestor of [undefined, "http://127.0.0.1:60000"]) {
+      await writeFile(
+        configPath,
+        JSON.stringify({
+          tasks: { wakeupResultTextLimit: 5000 },
+          ...(frameAncestor && { web: { frameAncestor } }),
+        }),
+      );
+      const p = await fixture(configPath);
+      try {
+        const page = await fetch(p.base, { method: "HEAD" });
+        const policy = page.headers.get("content-security-policy");
+        assert.equal(
+          policy?.split("; ").at(-1),
+          `frame-ancestors ${frameAncestor ?? "'none'"}`,
+        );
+        for (const headers of [
+          new Headers({ origin: "http://127.0.0.1:60000" }),
+          new Headers({ "sec-fetch-site": "cross-site" }),
+        ]) {
+          const response = await fetch(p.base + "/api/bootstrap", { headers });
+          assert.equal(response.status, 403);
+          await response.body?.cancel();
+        }
+      } finally {
+        await p.close();
+      }
+    }
+
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        tasks: { wakeupResultTextLimit: 5000 },
+        web: { frameAncestor: "https://example.com" },
+      }),
+    );
+    assert.throws(
+      () => createPlatform({ dbPath: ":memory:", workspace: dir, configPath }),
+      /web.frameAncestor/,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 
 test("Codex capability snapshots are scoped to the current SSE connection generation", async () => {
   const p = await fixture();
@@ -247,6 +298,95 @@ test("T4 HTTP MCP publishes target and lists online identities; filtered replay 
     stop.abort();
     await stream.return(undefined);
   } finally {
+    await client.close();
+    await p.close();
+  }
+});
+
+test("B4 三类实时订阅达到各自上限时，运行仍能续租和回报终态", async () => {
+  // 2026-11-07 全仓检查中，执行器、发起方和网页各开 8 条 SSE，24 条连接均成功。
+  // 合法心跳随后得到 429，任务在 8 秒租约过期后变为 interrupted。
+  const p = await fixture();
+  const client = new Client({
+    name: "review-subscription-budget",
+    version: "1",
+  });
+  const streams = new AbortController();
+  p.controllers.push(streams);
+  try {
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL(p.base + "/mcp")),
+    );
+    const published = await client.callTool({
+      name: "mcp-mingting-tool",
+      arguments: {
+        title: "检查订阅配额",
+        description: "检查长连接达到上限时的运行控制请求",
+        publisherName: "test",
+        targetHarness: "Codex",
+      },
+    });
+    assert.notEqual(published.isError, true);
+    const receipt = publishResultSchema.parse(published.structuredContent);
+    const bootstrap = await fetch(p.base + "/api/bootstrap");
+    assert.equal(bootstrap.status, 200);
+    const cookie = bootstrap.headers.get("set-cookie")?.split(";")[0];
+    assert.ok(cookie);
+    await bootstrap.json();
+
+    const executor = await p.connect("Codex");
+    assert.equal(executor.response.status, 200);
+    const owner = { ownerId: executor.ownerId, claimId: randomUUID() };
+    const { run } = claimResultSchema.parse(
+      await post(p.base, "/connector/claim", {
+        ...owner,
+        taskId: receipt.taskId,
+      }),
+    );
+    const signal = AbortSignal.any([streams.signal, AbortSignal.timeout(6000)]);
+    const subscriptions = await Promise.all([
+      ...Array.from({ length: LIMITS.subscribers - 1 }, () =>
+        fetch(p.base + "/connector/events", { signal }),
+      ),
+      ...Array.from({ length: LIMITS.subscribers }, () =>
+        fetch(
+          p.base + `/subscriber/events?taskId=${receipt.taskId}&view=result`,
+          {
+            headers: {
+              authorization: `Bearer ${receipt.resultSubscription.subscriptionToken}`,
+            },
+            signal,
+          },
+        ),
+      ),
+      ...Array.from({ length: LIMITS.browserSubscribers }, () =>
+        fetch(p.base + "/api/events", { headers: { cookie }, signal }),
+      ),
+    ]);
+    for (const stream of subscriptions) {
+      assert.equal(stream.status, 200, `订阅未建立 ${stream.url}`);
+      assert.match(
+        stream.headers.get("content-type") ?? "",
+        /^text\/event-stream/,
+      );
+    }
+    const heartbeat = heartbeatResultSchema.parse(
+      await post(p.base, `/connector/runs/${run.id}/heartbeat`, owner),
+    );
+    assert.equal(heartbeat.status, "running");
+    await post(p.base, `/connector/runs/${run.id}/report`, {
+      ...owner,
+      seq: 1,
+      update: {
+        type: "finished",
+        status: "succeeded",
+        stopReason: "end_turn",
+        error: null,
+      },
+    });
+    assert.equal(p.store.task(receipt.taskId)?.status, "succeeded");
+  } finally {
+    streams.abort();
     await client.close();
     await p.close();
   }

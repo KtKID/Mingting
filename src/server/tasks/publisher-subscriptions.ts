@@ -108,9 +108,12 @@ export class PublisherSubscriptions {
                     d.target === "subscriber",
                 ),
             ) ||
-            !["queued", "running", "awaiting_approval"].includes(
-              snapshot.taskStatus,
-            )
+            ![
+              "awaiting_dispatch",
+              "queued",
+              "running",
+              "awaiting_approval",
+            ].includes(snapshot.taskStatus)
           )
             resolve();
         };

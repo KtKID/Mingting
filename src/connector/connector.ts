@@ -7,6 +7,7 @@ import {
   heartbeatResultSchema,
   approvalCreatedSchema,
   permissionResultSchema,
+  reportResultSchema,
   type DeliveryEvent,
   type Claim,
   type ConnectorUpdate,
@@ -229,6 +230,11 @@ export class TaskConnector {
         throw new Error("连接器与平台固定工作区或演示模式不一致，未启动 ACP");
       const text = `${claim.task.title}\n\n${claim.task.description}`;
       const hooks: RunHooks = {
+        diagnosticContext: {
+          taskId: claim.task.id,
+          runId: run.runId,
+          taskTurn: claim.run.taskTurn ?? null,
+        },
         // 会话、初始化信息、流式通知和上下文观测共用同一条回报队列。
         session: (sessionId) => reports.enqueue({ type: "session", sessionId }),
         discovery: (discovery) =>
@@ -326,37 +332,51 @@ type FinishedUpdate = Extract<ConnectorUpdate, { type: "finished" }>;
 function createRunReports({ base, runId, owner, abort }: RunContext) {
   const path = `/connector/runs/${runId}/report`;
   let seq = 0;
+  let confirmationUnknown = false;
   let queued = 0;
   let pending = Promise.resolve();
 
+  async function send(current: number, update: ConnectorUpdate) {
+    return reportResultSchema.parse(
+      await post(base, path, { ...owner, seq: current, update }),
+    );
+  }
+
   function enqueue(update: ConnectorUpdate) {
-    if (++queued > LIMITS.pendingReports) {
+    if (queued >= LIMITS.pendingReports) {
       abort.abort(new Error("状态回传积压"));
       return pending;
     }
-    const current = ++seq;
-    pending = pending.then(async () => {
-      try {
-        const body = { ...owner, seq: current, update };
+    queued++;
+    pending = pending
+      .then(async () => {
+        const current = seq + 1;
         try {
-          await post(base, path, body);
+          try {
+            await send(current, update);
+          } catch (error) {
+            if (error instanceof HttpError) {
+              // 服务端已经明确返回错误。5xx 可能发生在提交后，终态仍需核对序号。
+              confirmationUnknown = error.status >= 500;
+              throw error;
+            }
+            // 传输失败时，平台可能已经提交，沿用原序号重发以补取确认。
+            confirmationUnknown = true;
+            if (abort.signal.aborted) throw error;
+            await send(current, update);
+          }
+          seq = current;
+          confirmationUnknown = false;
         } catch (error) {
-          if (
-            update.type !== "settings" ||
-            error instanceof HttpError ||
-            abort.signal.aborted
-          )
-            throw error;
-          // 设置回执的传输确认可能丢失，沿用原序号重发一次以便服务端去重。
-          await post(base, path, body);
+          abort.abort(
+            error instanceof Error ? error : new Error("状态回传失败"),
+          );
+          throw error;
         }
-      } catch (error) {
-        abort.abort(new Error("状态回传失败，停止原执行"));
-        throw error;
-      } finally {
+      })
+      .finally(() => {
         queued--;
-      }
-    });
+      });
     // 流式通知可直接入队，显式等待队列的调用方仍会收到原错误。
     void pending.catch(() => {});
     return pending;
@@ -367,10 +387,11 @@ function createRunReports({ base, runId, owner, abort }: RunContext) {
   }
 
   async function finish(update: FinishedUpdate) {
-    // 即使过程回报失败，也尽力提交终态。平台未收到终态时按租约到期处理。
     await waitForPending().catch(() => {});
     try {
-      await post(base, path, { ...owner, seq: ++seq, update });
+      const result = await send(seq + 1, update);
+      // 终态若被标成重复，平台已经提交了那条结果未知的过程回报。
+      if (confirmationUnknown && result.duplicate) await send(seq + 2, update);
     } catch {}
   }
 

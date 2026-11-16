@@ -12,7 +12,7 @@
 
 | 接口                                   | 行为                                                                                                                                                  |
 | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| MCP `wait_for_approval`                | 输入发布返回的订阅对象，可选 `waitMs`（0–25000，默认25000）。有待审请求时立即返回；其余时间等待新请求、任务结束或本轮等待结束。任务仍活动时继续调用。 |
+| MCP `wait_for_approval`                | 输入发布返回的订阅对象，可选 `waitMs`。允许范围从 0 到 `config.yaml` 的 `tasks.approvalWaitMs`，省略时使用该配置，默认 25000 毫秒。修改后重启服务。有待审请求时立即返回，其余时间等待新请求、任务结束或本轮等待结束。任务仍活动时继续调用。 |
 | HTTP `GET /subscriber/events?taskId=…` | 通过 `Authorization: Bearer <subscriptionToken>` 建立常驻 SSE，接收 `approval.snapshot`。连接建立时返回当前待审快照，之后推送变化。                   |
 | MCP `submit_approval_decision`         | 输入订阅对象、`approvalId`、`runId`、`sessionId`、原始 `optionId`，提交订阅者意见。                                                                   |
 | HTTP `POST /subscriber/decision`       | 使用与 `submit_approval_decision` 相同的输入。供可信本机客户端使用。                                                                                  |

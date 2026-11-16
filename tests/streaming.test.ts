@@ -19,8 +19,10 @@ test("A2 process projection persists thoughts and merges tool patches; duplicate
       title: "问候",
       description: "hi",
       publisherName: "test",
+      targetHarness: "Codex",
     });
     const owner = { ownerId: randomUUID(), claimId: randomUUID() };
+    p.service.registerHarness({ ownerId: owner.ownerId, harnessName: "Codex" });
     const { run } = p.service.claim(taskId, owner);
     let seq = 1;
     p.service.report(run.id, owner, seq++, { type: "session", sessionId: "s" });
@@ -234,8 +236,10 @@ test("A3 browser SSE requires a local cookie and delivers pre-finish snapshots a
       title: "问候",
       description: "hi",
       publisherName: "test",
+      targetHarness: "Codex",
     });
     const owner = { ownerId: randomUUID(), claimId: randomUUID() };
+    p.service.registerHarness({ ownerId: owner.ownerId, harnessName: "Codex" });
     const { run } = p.service.claim(taskId, owner);
     p.service.report(run.id, owner, 1, { type: "session", sessionId: "s" });
     const open = async () => {

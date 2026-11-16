@@ -1,12 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { createServer } from "node:http";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { z } from "zod";
 import type { RequestPermissionRequest } from "@agentclientprotocol/sdk";
 import { createPlatform } from "../src/server/transport/http.js";
 import { CodexAdapter } from "../src/server/harness/codex/codex-adapter.js";
@@ -37,12 +38,20 @@ const request = (sessionId: string): RequestPermissionRequest => ({
     { optionId: "no", name: "拒绝本次操作", kind: "reject_once" },
   ],
 });
-async function fixture() {
+async function fixture(approvalWaitMs?: number | "legacy") {
   const dir = await mkdtemp(resolve(tmpdir(), "mingting-approvals-"));
+  const configPath =
+    approvalWaitMs === undefined ? undefined : resolve(dir, "config.yaml");
+  if (configPath)
+    await writeFile(
+      configPath,
+      `tasks:\n  wakeupResultTextLimit: 5000\n${typeof approvalWaitMs === "number" ? `  approvalWaitMs: ${approvalWaitMs}\n` : ""}`,
+    );
   const p = createPlatform({
     dbPath: resolve(dir, "tasks.sqlite"),
     workspace: dir,
     mode: "fake",
+    configPath,
   });
   const server = createServer(p.app);
   await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
@@ -55,10 +64,12 @@ async function fixture() {
       title: "文件整理",
       description: "测试",
       publisherName: "Codex",
+      targetHarness: "Codex",
     });
     const subscription = published.approvalSubscription;
     if (!subscription) throw new Error("missing subscription");
     const owner = { ownerId: randomUUID(), claimId: randomUUID() };
+    p.service.registerHarness({ ownerId: owner.ownerId, harnessName: "Codex" });
     const { run } = p.service.claim(published.taskId, owner);
     p.service.report(run.id, owner, 1, {
       type: "session",
@@ -454,6 +465,7 @@ test("P9 publisher MCP waits before ACP permission, reviews it and yields to use
         title: "MCP 审批",
         description: "test",
         publisherName: "Codex",
+        targetHarness: "Codex",
         approvalTargets: ["subscriber"],
       },
     });
@@ -466,6 +478,7 @@ test("P9 publisher MCP waits before ACP permission, reviews it and yields to use
       arguments: approvalSubscription,
     });
     const owner = { ownerId: randomUUID(), claimId: randomUUID() };
+    p.service.registerHarness({ ownerId: owner.ownerId, harnessName: "Codex" });
     const { run } = p.service.claim(taskId, owner);
     p.service.report(run.id, owner, 1, {
       type: "session",
@@ -510,6 +523,125 @@ test("P9 publisher MCP waits before ACP permission, reviews it and yields to use
   }
 });
 
+for (const [configuredWait, expectedWait] of [
+  ["legacy", 25_000],
+  [80, 80],
+] as const) {
+  test(`审批等待配置 ${configuredWait} 同时决定 MCP 的默认值和最大值`, async () => {
+    // 检查发现 MCP 把等待上限和默认值写死为 25 秒。旧 YAML 应继续用 25 秒，显式配置应同时改变发现和执行。
+    const p = await fixture(configuredWait);
+    const client = new Client({ name: "approval-wait-config", version: "1" });
+    try {
+      await client.connect(
+        new StreamableHTTPClientTransport(new URL(p.base + "/mcp")),
+      );
+      const tool = (await client.listTools()).tools.find(
+        (entry) => entry.name === "wait_for_approval",
+      );
+      assert.ok(tool);
+      const bounds = z
+        .object({ maximum: z.number(), default: z.number() })
+        .parse(tool.inputSchema.properties?.waitMs);
+      assert.deepEqual(bounds, {
+        maximum: expectedWait,
+        default: expectedWait,
+      });
+      assert.ok(
+        tool.description
+          ?.replace(/\s+/g, "")
+          .includes(`${expectedWait / 1000}秒`),
+      );
+
+      const published = await client.callTool({
+        name: "mcp-mingting-tool",
+        arguments: {
+          title: "等待审批",
+          description: "测试配置边界",
+          publisherName: "test",
+          targetHarness: "Codex",
+        },
+      });
+      const receipt = publishResultSchema.parse(published.structuredContent);
+      const subscription = receipt.approvalSubscription;
+      assert.ok(subscription);
+      const owner = { ownerId: randomUUID(), claimId: randomUUID() };
+      p.service.registerHarness({
+        ownerId: owner.ownerId,
+        harnessName: "Codex",
+      });
+      const { run } = p.service.claim(receipt.taskId, owner);
+      p.service.report(run.id, owner, 1, {
+        type: "session",
+        sessionId: "wait-config-session",
+      });
+      p.service.permission(run.id, owner, 1, request("wait-config-session"));
+      for (const waitMs of [
+        undefined,
+        expectedWait - 1,
+        expectedWait,
+        expectedWait + 1,
+      ]) {
+        const result = await client.callTool({
+          name: "wait_for_approval",
+          arguments: {
+            ...subscription,
+            ...(waitMs === undefined ? {} : { waitMs }),
+          },
+        });
+        if (waitMs === expectedWait + 1) assert.equal(result.isError, true);
+        else
+          assert.equal(
+            approvalSnapshotSchema.parse(result.structuredContent).approvals
+              .length,
+            1,
+          );
+      }
+      assert.deepEqual(
+        p.store
+          .communications(receipt.taskId)
+          .entries.filter((entry) => entry.type === "approval.wait")
+          .map((entry) => entry.content),
+        [
+          { waitMs: expectedWait },
+          { waitMs: expectedWait - 1 },
+          { waitMs: expectedWait },
+        ],
+      );
+      if (configuredWait === "legacy") return;
+
+      // 使用排队中的任务实测省略 waitMs 时会按配置超时返回快照。
+      // 指向离线执行者让任务保持排队且不会产生审批。
+      const queued = await client.callTool({
+        name: "mcp-mingting-tool",
+        arguments: {
+          title: "无审批的排队任务",
+          description: "等待窗口测试",
+          publisherName: "test",
+          targetHarness: "Offline",
+        },
+      });
+      const queuedSubscription = publishResultSchema.parse(
+        queued.structuredContent,
+      ).approvalSubscription;
+      assert.ok(queuedSubscription);
+      const started = performance.now();
+      const result = await client.callTool(
+        { name: "wait_for_approval", arguments: queuedSubscription },
+        undefined,
+        { timeout: 2000 },
+      );
+      assert.equal(
+        approvalSnapshotSchema.parse(result.structuredContent).taskStatus,
+        "queued",
+      );
+      assert.ok(performance.now() - started >= expectedWait - 5);
+    } finally {
+      await client.close();
+      await p.close();
+    }
+  });
+}
+
 test("P10 real ACP child waits on subscriber opinion and resumes with browser user's override", async () => {
   const p = await fixture();
   const adapter = new CodexAdapter({
@@ -530,6 +662,7 @@ test("P10 real ACP child waits on subscriber opinion and resumes with browser us
       title: "ACP 完整链路",
       description: "test",
       publisherName: "Codex",
+      targetHarness: "Codex",
     });
     const subscription = published.approvalSubscription;
     if (!subscription) throw new Error("missing subscription");
@@ -651,6 +784,67 @@ test("P12 bounded approval waits release listeners and capacity on abort, timeou
     assert.equal(p.service.events.listenerCount("changed"), baseline);
   } finally {
     controllers.forEach((controller) => controller.abort());
+    await p.close();
+  }
+});
+
+test("B4 MCP 审批等待交回普通请求名额，满载时短请求仍可响应", async () => {
+  // 检查发现 MCP 长轮询与普通请求共用名额。只留一个普通名额时，等待审批应交回该名额。
+  const p = await fixture();
+  const client = new Client({ name: "approval-wait-budget", version: "1" });
+  const stop = new AbortController();
+  try {
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL(p.base + "/mcp")),
+    );
+    const published = await client.callTool({
+      name: "mcp-mingting-tool",
+      arguments: {
+        title: "等待审批",
+        description: "测试长轮询配额",
+        publisherName: "test",
+      },
+    });
+    const subscription = publishResultSchema.parse(
+      published.structuredContent,
+    ).approvalSubscription;
+    assert.ok(subscription);
+
+    p.app.get("/test-held-requests", (_req, res) => res.flushHeaders());
+    const held = await Promise.all(
+      Array.from({ length: LIMITS.httpConcurrent - 1 }, () =>
+        fetch(p.base + "/test-held-requests", { signal: stop.signal }),
+      ),
+    );
+    for (const response of held) assert.equal(response.status, 200);
+    const waitForApproval = p.service.waitForApproval.bind(p.service);
+    const entered = new Promise<void>((resolve) => {
+      p.service.waitForApproval = (...args) => {
+        const pending = waitForApproval(...args);
+        resolve();
+        return pending;
+      };
+    });
+    const waiting = client.callTool(
+      {
+        name: "wait_for_approval",
+        arguments: { ...subscription, waitMs: 2000 },
+      },
+      undefined,
+      { signal: stop.signal },
+    );
+    void waiting.catch(() => {});
+    await Promise.race([
+      entered,
+      waiting.then(() => assert.fail("审批等待提前返回")),
+    ]);
+    const short = await fetch(p.base + "/api/bootstrap", {
+      signal: stop.signal,
+    });
+    assert.equal(short.status, 200);
+  } finally {
+    stop.abort();
+    await client.close();
     await p.close();
   }
 });

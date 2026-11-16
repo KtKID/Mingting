@@ -126,6 +126,15 @@ export class TaskService {
     return this.publication.publish(raw, publisher);
   }
 
+  /** 派发待派发任务，供网页操作入口调用。 */
+  dispatchTask(taskId: string, targetHarness?: string) {
+    return this.publication.dispatch({
+      action: "dispatch",
+      taskId,
+      ...(targetHarness ? { targetHarness } : {}),
+    });
+  }
+
   acknowledgeHostWakeup(hostId: string, ack: HostAck) {
     return wakeupReceipts.acknowledgeHostWakeup(this.store, hostId, ack);
   }

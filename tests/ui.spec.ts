@@ -60,6 +60,37 @@ test("Codex publishing form offers per-model effort for mixed-case targets", asy
   await expect(detail.locator(".answer-output")).toHaveText("executed:B/high");
 });
 
+test("task board parks publications without executor and dispatches from detail", async ({
+  page,
+}, info) => {
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "发布任务", exact: true })
+    .first()
+    .click();
+  const form = page.getByRole("dialog", { name: "发布任务" });
+  await page.getByLabel("任务标题").fill("中台登记 · " + info.project.name);
+  await page.getByLabel("任务描述").fill("[usage-check]");
+  await page.getByLabel("发布人名字").fill("验证");
+  await form.getByRole("button", { name: "发布任务", exact: true }).click();
+  const d = page.getByRole("dialog", { name: "任务详情" });
+  // 未指定执行者：登记为待派发，不触发执行。
+  await expect(d.locator(".status")).toHaveText("待派发");
+  await expect(d.getByText("未指定", { exact: true })).toBeVisible();
+  await expect(d.locator(".dispatch-controls button")).toBeDisabled();
+  await expect(page.getByRole("tab", { name: "待派发" })).toBeVisible();
+  // 在详情里选择执行者并派发，任务被执行到完成。
+  await d.getByLabel("派发执行者").fill("Codex");
+  await d.getByRole("button", { name: "派发", exact: true }).click();
+  await expect(d.locator(".status")).toHaveText("已完成", { timeout: 10000 });
+  await d.getByRole("button", { name: "关闭任务详情" }).click();
+  // 派发完成后该任务不再占用待派发筛选。
+  await page.getByRole("tab", { name: "待派发" }).click();
+  await expect(
+    page.getByRole("button", { name: `查看任务：中台登记 · ${info.project.name}` }),
+  ).toHaveCount(0);
+});
+
 test("Codex metering view separates task Usage from latest and historical context", async ({
   page,
 }, info) => {
@@ -105,6 +136,10 @@ test("A4 answer, reasoning and tools arrive before completion; reconnect and ref
   await page.getByLabel("任务标题").fill(title);
   await page.getByLabel("任务描述").fill("[stream] 简单问候");
   await page.getByLabel("发布人名字").fill("ACP 验证");
+  await page
+    .getByRole("dialog", { name: "发布任务" })
+    .getByLabel("执行者")
+    .fill("Codex");
   await page
     .getByRole("dialog", { name: "发布任务" })
     .getByRole("button", { name: "发布任务", exact: true })
@@ -168,6 +203,10 @@ test("publish, list three required fields, inspect permission and approve in bro
     .getByLabel("任务描述")
     .fill("检查安装步骤，补充启动命令与环境配置说明。");
   await page.getByLabel("发布人名字").fill("林小舟");
+  await page
+    .getByRole("dialog", { name: "发布任务" })
+    .getByLabel("执行者")
+    .fill("Codex");
   await expect(
     page.getByRole("checkbox", { name: "订阅者 任务发起方" }),
   ).toBeChecked();
@@ -253,6 +292,7 @@ async function publishApprovalTask(page: Page, title: string) {
           title,
           description: "检查审批等待与用户优先规则",
           publisherName: "Codex",
+          targetHarness: "Codex",
           approvalTargets: ["subscriber"],
         },
       },
@@ -449,6 +489,10 @@ test("browser reject decision and cancellation with explicit retry", async ({
   await page.getByLabel("发布人名字").fill("测试者");
   await page
     .getByRole("dialog", { name: "发布任务" })
+    .getByLabel("执行者")
+    .fill("Codex");
+  await page
+    .getByRole("dialog", { name: "发布任务" })
     .getByRole("button", { name: "发布任务", exact: true })
     .click();
   const d = page.getByRole("dialog", { name: "任务详情" });
@@ -468,6 +512,10 @@ test("browser reject decision and cancellation with explicit retry", async ({
   await page.getByLabel("任务标题").fill("取消执行 · " + info.project.name);
   await page.getByLabel("任务描述").fill("演示取消后旧审批失效。");
   await page.getByLabel("发布人名字").fill("测试者");
+  await page
+    .getByRole("dialog", { name: "发布任务" })
+    .getByLabel("执行者")
+    .fill("Codex");
   await page
     .getByRole("dialog", { name: "发布任务" })
     .getByRole("button", { name: "发布任务", exact: true })

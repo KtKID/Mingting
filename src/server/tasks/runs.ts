@@ -95,6 +95,8 @@ export class TaskRuns {
             mode: this.mode,
           };
       }
+      if (t.status === "awaiting_dispatch")
+        throw new AppError(409, "任务尚未派发；不能认领");
       if (t.status !== "queued") throw new AppError(410, "任务已领取或已结束");
       if (this.store.unfinished().length)
         throw new AppError(409, "执行器忙；任务仍保留在队列");
@@ -294,7 +296,11 @@ export class TaskRuns {
   cancel(id: string, reason = "用户取消") {
     const t = this.store.task(id);
     if (!t) throw new AppError(404, "任务不存在");
-    if (!["queued", "running", "awaiting_approval"].includes(t.status))
+    if (
+      !["awaiting_dispatch", "queued", "running", "awaiting_approval"].includes(
+        t.status,
+      )
+    )
       throw new AppError(409, "任务已结束");
     this.store.transaction(() => {
       // 原子标记任务和当前运行为取消，保留执行器后续收尾。

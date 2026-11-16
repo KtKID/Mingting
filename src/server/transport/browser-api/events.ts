@@ -2,6 +2,7 @@ import type { Request, RequestHandler } from "express";
 import { z } from "zod";
 import { LIMITS } from "../../../shared/protocol.js";
 import { AppError, type TaskService } from "../../tasks/service.js";
+import { releaseShortRequestSlot } from "../http-middleware.js";
 
 /** 合并任务变更，通过 SSE 推送网页所需的完整快照。 */
 export function browserEvents(
@@ -85,5 +86,6 @@ export function browserEvents(
     });
     // Subscribe before the full SQLite snapshot; reconnect replaces browser state atomically.
     send();
+    releaseShortRequestSlot(res);
   };
 }

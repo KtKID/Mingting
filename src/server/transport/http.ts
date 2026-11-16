@@ -25,7 +25,7 @@ type Config = {
 /** 组装任务服务、数据库、中间件与 HTTP 路由。 */
 export function createPlatform(config: Config) {
   const { workspace, mode = "codex" } = config;
-  const { tasks } = loadConfig(config.configPath);
+  const { tasks, web } = loadConfig(config.configPath);
   const store = new Store(config.dbPath);
   const service = new TaskService(
     store,
@@ -37,7 +37,8 @@ export function createPlatform(config: Config) {
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", false);
-  app.use(localHttpGuard());
+  app.use(localHttpGuard(web?.frameAncestor));
+  app.use(connectorRouter(service, tasks.runReportBodyBytes));
   app.use(express.json({ limit: LIMITS.httpBytes }));
   const wakeupHost = config.wakeupHosts?.length
     ? hostWakeupRouter(service, config.wakeupHosts, tasks.wakeupResultTextLimit)
@@ -45,8 +46,7 @@ export function createPlatform(config: Config) {
   if (wakeupHost) app.use("/wakeup-host", wakeupHost.router);
   app.use(browserApiRouter(service, workspace, mode));
   app.use(subscriberRouter(service));
-  app.use(connectorRouter(service));
-  app.use(mcpRouter(service, wakeupHost?.publisher));
+  app.use(mcpRouter(service, tasks.approvalWaitMs, wakeupHost?.publisher));
   app.use(webAssetsRouter());
   app.use(httpErrorHandler);
   return { app, service, store };

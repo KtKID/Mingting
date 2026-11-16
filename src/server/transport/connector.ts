@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { json, Router } from "express";
 import { z } from "zod";
 import {
   capabilityReportSchema,
@@ -11,10 +11,14 @@ import {
   type DeliveryEvent,
 } from "../../shared/protocol.js";
 import { AppError, type TaskService } from "../tasks/service.js";
+import { releaseShortRequestSlot } from "./http-middleware.js";
 import { taskExchange, taskMessage } from "./task-communication.js";
 
 /** 提供执行器的任务投递、认领、租约和运行回报接口。 */
-export function connectorRouter(service: TaskService) {
+export function connectorRouter(
+  service: TaskService,
+  runReportBodyBytes: number,
+) {
   const router = Router();
   const { store } = service;
   // Connector transport is separate from MCP and browser sessions; trusted local CLI only.
@@ -27,6 +31,27 @@ export function connectorRouter(service: TaskService) {
       return res.status(403).json({ error: "订阅接口仅供本机连接器使用" });
     next();
   });
+  router.post(
+    "/connector/runs/:id/report",
+    json({ limit: runReportBodyBytes }),
+    (req, res) => {
+      // 解析执行器按序提交的运行进度或结果，并记录通信。
+      const runId = req.params.id;
+      const body = reportSchema.parse(req.body);
+      res.json(
+        taskExchange(
+          store,
+          service.runMessageScope(runId, body),
+          "executor",
+          "report",
+          { runId, reportSeq: body.seq, update: body.update },
+          /* 按上报序号提交更新，返回是否重复处理。 */ () =>
+            service.report(runId, body, body.seq, body.update),
+        ),
+      );
+    },
+  );
+  router.use("/connector", json({ limit: LIMITS.httpBytes }));
   let subscriberCount = 0;
   router.get("/connector/events", (req, res) => {
     // 登记执行器订阅，先从游标重放历史投递，再继续接收实时事件。
@@ -124,6 +149,7 @@ export function connectorRouter(service: TaskService) {
       }
     } while (page.length === 200 && !res.writableEnded);
     if (!res.writableEnded) res.write(": subscribed\n\n");
+    releaseShortRequestSlot(res);
   });
   router.post("/connector/capabilities", (req, res) => {
     // 更新当前连接器代次的能力快照。
@@ -166,22 +192,6 @@ export function connectorRouter(service: TaskService) {
         { runId },
         /* 延长认领租约并返回当前运行状态。 */ () =>
           service.heartbeat(runId, owner),
-      ),
-    );
-  });
-  router.post("/connector/runs/:id/report", (req, res) => {
-    // 解析执行器按序提交的运行进度或结果，并记录通信。
-    const runId = req.params.id;
-    const body = reportSchema.parse(req.body);
-    res.json(
-      taskExchange(
-        store,
-        service.runMessageScope(runId, body),
-        "executor",
-        "report",
-        { runId, reportSeq: body.seq, update: body.update },
-        /* 按上报序号提交更新，返回是否重复处理。 */ () =>
-          service.report(runId, body, body.seq, body.update),
       ),
     );
   });

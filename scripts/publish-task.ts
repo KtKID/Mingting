@@ -1,6 +1,8 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { publishTaskSchema } from "../src/shared/protocol.js";
+// 用法：tsx scripts/publish-task.ts [标题] [描述] [发布人] [执行者]
+// 不传执行者时任务登记为待派发，不触发执行者；传执行者则立即派发给它。
 const input = publishTaskSchema.parse({
   title: process.argv[2] ?? "补充项目安装说明",
   description: process.argv[3] ?? "检查 README，补充安装和启动步骤。",

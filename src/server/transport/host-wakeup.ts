@@ -10,6 +10,7 @@ import {
 } from "../../shared/host-wakeup.js";
 import { LIMITS, type Run } from "../../shared/protocol.js";
 import { AppError, type TaskService } from "../tasks/service.js";
+import { releaseShortRequestSlot } from "./http-middleware.js";
 import { taskExchange, taskMessage } from "./task-communication.js";
 
 // 通用宿主协议的单帧上限，单位为 UTF-16 代码单元。
@@ -183,6 +184,7 @@ export function hostWakeupRouter(
     });
     res.write(`event: ready\ndata: ${JSON.stringify({ hostId })}\n\n`);
     send();
+    releaseShortRequestSlot(res);
   });
 
   router.post("/ack", (req, res) => {

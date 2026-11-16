@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, readFile } from "node:fs/promises";
+import { mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { createServer, request as httpRequest } from "node:http";
@@ -11,12 +11,15 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { createPlatform } from "../src/server/transport/http.js";
 import { CodexAdapter } from "../src/server/harness/codex/codex-adapter.js";
 import { TaskConnector } from "../src/connector/connector.js";
+import { post } from "../src/connector/transport.js";
 import {
+  claimResultSchema,
   detailSchema,
   LIMITS,
   publishResultSchema,
   publishTaskSchema,
   runSchema,
+  type ConnectorUpdate,
 } from "../src/shared/protocol.js";
 import { Store } from "../src/server/storage/store.js";
 
@@ -186,11 +189,12 @@ export async function fixture(
   fakeEnv: NodeJS.ProcessEnv = {},
 ) {
   const dir = await mkdtemp(resolve(tmpdir(), "task-mvp-"));
-  const build = async (autoConnect = true) => {
+  const build = async (autoConnect = true, configPath?: string) => {
     const platform = createPlatform({
       dbPath: resolve(dir, "tasks.sqlite"),
       workspace: dir,
       mode: "fake",
+      configPath,
     });
     const adapter = new CodexAdapter({
       mode: "fake",
@@ -238,7 +242,8 @@ export async function fixture(
         );
         const result = await client.callTool({
           name: "mcp-mingting-tool",
-          arguments: { action: "new", ...input },
+          // 默认派发给夹具连接器（Codex），显式传入的执行者可覆盖。
+          arguments: { action: "new", targetHarness: "Codex", ...input },
         });
         assert.ok(!result.isError, JSON.stringify(result.content));
         return publishResultSchema.parse(result.structuredContent);
@@ -328,6 +333,110 @@ test("Web and MCP publish mixed-case Codex targets with settings before the conn
       assert.equal(detail.runs[0]?.settingsReceipt?.status, "applied");
       assert.equal(detail.runs[0]?.output, "executed:B/high");
     }
+  } finally {
+    await client.close();
+    await p.stop();
+    await f.cleanup();
+  }
+});
+
+test("任务中台：不指定执行者发布登记为待派发，网页派发后执行并拒绝重复派发", async () => {
+  const f = await fixture();
+  const p = await f.build();
+  try {
+    const before = p.store.latestDelivery();
+    const id = (
+      await p.publish({
+        title: "中台登记",
+        description: "[usage-check]",
+        publisherName: "user",
+        targetHarness: undefined,
+      })
+    ).taskId;
+    const task = p.store.task(id);
+    assert.equal(task?.status, "awaiting_dispatch");
+    assert.equal(task?.targetHarness, undefined);
+    // 登记不产生投递事件，在线执行者无从得知。
+    assert.equal(p.store.latestDelivery(), before);
+    const owner = { ownerId: randomUUID(), claimId: randomUUID() };
+    p.service.registerHarness({ ownerId: owner.ownerId, harnessName: "Codex" });
+    assert.throws(() => p.service.claim(id, owner), /尚未派发/);
+    assert.equal(p.store.task(id)?.status, "awaiting_dispatch");
+    // 派发缺少执行者被拒绝，任务保持待派发。
+    const missing = await p.api("/tasks/" + id + "/dispatch", {});
+    assert.equal(missing.status, 400);
+    assert.equal(p.store.task(id)?.status, "awaiting_dispatch");
+    // 网页派发到 Codex，任务进入队列并被在线连接器执行。
+    const dispatched = await p.api("/tasks/" + id + "/dispatch", {
+      targetHarness: "codex",
+    });
+    assert.equal(dispatched.status, 200);
+    assert.equal(p.store.task(id)?.targetHarness, "codex");
+    const detail = await until(
+      async () => detailSchema.parse((await p.api("/tasks/" + id)).body),
+      ({ task }) => task.status === "succeeded",
+    );
+    assert.equal(detail.runs[0]?.harnessName, "Codex");
+    assert.ok(
+      detail.communications?.entries.some((entry) => entry.type === "dispatch"),
+      "派发操作应记录任务通信",
+    );
+    // 终态任务不可再次派发。
+    const again = await p.api("/tasks/" + id + "/dispatch", {
+      targetHarness: "Codex",
+    });
+    assert.equal(again.status, 409);
+  } finally {
+    await p.stop();
+    await f.cleanup();
+  }
+});
+
+test("任务中台：MCP dispatch 命令派发待派发任务，登记不占队列且可取消", async () => {
+  const f = await fixture();
+  const p = await f.build(false);
+  const client = new Client({ name: "dispatch-test", version: "1" });
+  try {
+    const parked = p.service.publish({
+      title: "登记A",
+      description: "test",
+      publisherName: "user",
+    });
+    assert.equal(p.store.task(parked.taskId)?.status, "awaiting_dispatch");
+    // 待派发任务不计入执行队列上限。
+    assert.equal(p.store.countActive(), 0);
+    // 待派发任务可以直接取消。
+    p.service.cancel(parked.taskId);
+    assert.equal(p.store.task(parked.taskId)?.status, "cancelled");
+
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL(p.base + "/mcp")),
+    );
+    const published = await client.callTool({
+      name: "mcp-mingting-tool",
+      arguments: {
+        action: "new",
+        title: "登记B",
+        description: "test",
+        publisherName: "user",
+      },
+    });
+    assert.ok(!published.isError, JSON.stringify(published.content));
+    const { taskId } = publishResultSchema.parse(published.structuredContent);
+    assert.equal(p.store.task(taskId)?.status, "awaiting_dispatch");
+    const dispatched = await client.callTool({
+      name: "mcp-mingting-tool",
+      arguments: { action: "dispatch", taskId, targetHarness: "Codex" },
+    });
+    assert.ok(!dispatched.isError, JSON.stringify(dispatched.content));
+    assert.equal(p.store.task(taskId)?.status, "queued");
+    assert.equal(p.store.task(taskId)?.targetHarness, "Codex");
+    // 已派发的排队任务不可重复派发。
+    const repeated = await client.callTool({
+      name: "mcp-mingting-tool",
+      arguments: { action: "dispatch", taskId, targetHarness: "Codex" },
+    });
+    assert.match(JSON.stringify(repeated.content), /已派发或已结束/);
   } finally {
     await client.close();
     await p.stop();
@@ -563,7 +672,8 @@ test("Codex settings readback mismatch and receipt write failure never send a pr
     try {
       const save = p.store.saveRun.bind(p.store);
       let failedWrite = false;
-      if (fault === "write")
+      let rolledBackSeq: number | undefined;
+      if (fault === "write") {
         p.store.saveRun = (run) => {
           if (run.settingsReceipt && !failedWrite) {
             failedWrite = true;
@@ -571,6 +681,17 @@ test("Codex settings readback mismatch and receipt write failure never send a pr
           }
           return save(run);
         };
+        const submit = p.service.report.bind(p.service);
+        p.service.report = (...args) => {
+          try {
+            return submit(...args);
+          } catch (error) {
+            if (args[3].type === "settings")
+              rolledBackSeq = p.store.lease(args[0])?.seq;
+            throw error;
+          }
+        };
+      }
       const { taskId } = p.service.publish({
         title: "Fault",
         description: "[settings-check]",
@@ -578,37 +699,22 @@ test("Codex settings readback mismatch and receipt write failure never send a pr
         targetHarness: "Codex",
         requestedSettings: { modelId: "B" },
       });
-      if (fault === "write") {
-        await until(
-          async () => failedWrite,
-          (value) => value,
-        );
-        const run = p.store.detail(taskId)?.runs[0];
-        assert.ok(run);
-        assert.equal(run.settingsReceipt, undefined);
-        const lease = p.store.lease(run.id);
-        assert.ok(lease);
-        assert.equal(lease.seq, 2);
-        p.store.saveLease(
-          run.id,
-          lease.ownerId,
-          lease.claimId,
-          Date.now() - 1,
-          lease.seq,
-        );
-        p.service.sweep();
-      }
       const run = await until(
         async () => p.store.detail(taskId)?.runs[0],
         (value) => Boolean(value?.endedAt),
       );
-      assert.equal(
-        run?.status,
-        fault === "mismatch" ? "failed" : "interrupted",
-      );
+      assert.equal(run?.status, "failed");
       if (fault === "mismatch") {
         assert.equal(run?.settingsReceipt?.status, "rejected");
         assert.match(run?.settingsReceipt?.reason ?? "", /回读值/);
+      } else {
+        // 检查发现设置回执写库失败属于明确拒收。先验证事务回滚，再检查失败终态使用该序号。
+        assert.ok(failedWrite);
+        assert.equal(rolledBackSeq, 2);
+        assert.ok(run);
+        assert.equal(run.settingsReceipt, undefined);
+        assert.match(run.error ?? "", /服务错误/);
+        assert.equal(p.store.lease(run.id)?.seq, 3);
       }
       await assert.rejects(readFile(promptLog), { code: "ENOENT" });
     } finally {
@@ -842,6 +948,7 @@ test("real HTTP MCP publish → SQLite → ACP child permission → browser API 
         title: "审批闭环",
         description: "test command",
         publisherName: "小王",
+        targetHarness: "Codex",
       },
     });
     const id = (published.structuredContent as { taskId: string }).taskId;
@@ -1198,6 +1305,7 @@ test("server restart recovers persisted crash state and queued task; no auto-res
       title: "崩溃前排队",
       description: "test",
       publisherName: "test",
+      targetHarness: "Codex",
     });
     store.close();
     p = await f.build();
@@ -1344,6 +1452,7 @@ test("SSE subscription before HTTP MCP publication receives a durable task.avail
         title: "先订阅再发布",
         description: "real HTTP event",
         publisherName: "MCP",
+        targetHarness: "Codex",
       },
     });
     const id = (published.structuredContent as any).taskId;
@@ -1474,6 +1583,11 @@ test("concurrent and repeated claims are fenced; sequenced reports are idempoten
     ).taskId;
     const one = { taskId: id, ownerId: randomUUID(), claimId: randomUUID() },
       two = { taskId: id, ownerId: randomUUID(), claimId: randomUUID() };
+    for (const claimer of [one, two])
+      p.service.registerHarness({
+        ownerId: claimer.ownerId,
+        harnessName: "Codex",
+      });
     const results = await Promise.allSettled([
       post<any>(p.base, "/connector/claim", one),
       post<any>(p.base, "/connector/claim", two),
@@ -1720,6 +1834,7 @@ test("SSE rejects browser origins and invalid replay cursors; ACP payloads forwa
       })
     ).taskId;
     const owner = { ownerId: randomUUID(), claimId: randomUUID() };
+    p.service.registerHarness({ ownerId: owner.ownerId, harnessName: "Codex" });
     const claim = await post<any>(p.base, "/connector/claim", {
       taskId: id,
       ...owner,
@@ -1821,3 +1936,204 @@ test("cancelling a stubborn ACP child forces process cleanup and does not perman
     await f.cleanup();
   }
 });
+
+async function publishReviewTask(base: string, description: string) {
+  const client = new Client({ name: "review-regression", version: "1" });
+  try {
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL(base + "/mcp")),
+    );
+    const receipt = await client.callTool({
+      name: "mcp-mingting-tool",
+      arguments: {
+        title: "检查回归",
+        description,
+        publisherName: "test",
+        targetHarness: "Codex",
+      },
+    });
+    assert.notEqual(receipt.isError, true);
+    return publishResultSchema.parse(receipt.structuredContent).taskId;
+  } finally {
+    await client.close();
+  }
+}
+
+for (const bodyLimit of [4 * 1024, LIMITS.httpBytes + 1024]) {
+  test(`B1 执行回报按配置的 ${bodyLimit} 字节检查请求体边界`, async () => {
+    // 2026-11-07 全仓检查发现，ACP 接收与 HTTP 回报使用不同的大小上限，合法 ACP 消息转发时会收到 413。
+    // 这里分别用低于和高于通用 HTTP 上限的配置，按完整 JSON 的 UTF-8 字节数构造边界数据。
+    const f = await fixture();
+    const configPath = resolve(f.dir, "config.yaml");
+    await writeFile(
+      configPath,
+      `tasks:\n  wakeupResultTextLimit: 5000\n  runReportBodyBytes: ${bodyLimit}\n`,
+    );
+    const p = await f.build(false, configPath);
+    try {
+      const taskId = await publishReviewTask(p.base, "检查回报请求体上限");
+      const owner = { ownerId: randomUUID(), claimId: randomUUID() };
+      p.service.registerHarness({
+        ownerId: owner.ownerId,
+        harnessName: "Codex",
+      });
+      const { run } = claimResultSchema.parse(
+        await post(p.base, "/connector/claim", { taskId, ...owner }),
+      );
+      const path = `/connector/runs/${run.id}/report`;
+      const sessionId = "report-size-boundary";
+      await post(p.base, path, {
+        ...owner,
+        seq: 1,
+        update: { type: "session", sessionId },
+      });
+
+      const reportAtSize = (seq: number, bytes: number) => {
+        const content = { type: "text" as const, text: "边界回报" };
+        const update: ConnectorUpdate = {
+          type: "notification",
+          notification: {
+            sessionId,
+            update: { sessionUpdate: "agent_message_chunk", content },
+          },
+        };
+        const report = { ...owner, seq, update };
+        content.text += "x".repeat(
+          bytes - Buffer.byteLength(JSON.stringify(report)),
+        );
+        const body = JSON.stringify(report);
+        assert.equal(Buffer.byteLength(body), bytes);
+        return fetch(p.base + path, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body,
+          signal: AbortSignal.timeout(LIMITS.connectorHttpMs),
+        });
+      };
+
+      const below = await reportAtSize(2, bodyLimit - 1);
+      assert.equal(below.status, 200);
+      assert.deepEqual(await below.json(), { duplicate: false });
+      assert.equal(p.store.lease(run.id)?.seq, 2);
+      const equal = await reportAtSize(3, bodyLimit);
+      assert.equal(equal.status, 200);
+      assert.deepEqual(await equal.json(), { duplicate: false });
+      assert.equal(p.store.lease(run.id)?.seq, 3);
+      const output = p.store.run(run.id)?.output;
+      assert.ok(output);
+
+      const above = await reportAtSize(4, bodyLimit + 1);
+      assert.equal(above.status, 413);
+      assert.deepEqual(await above.json(), { error: "请求内容过大" });
+      assert.equal(p.store.lease(run.id)?.seq, 3);
+      assert.equal(p.store.run(run.id)?.output, output);
+
+      const retry = await reportAtSize(4, bodyLimit);
+      assert.equal(retry.status, 200);
+      assert.deepEqual(await retry.json(), { duplicate: false });
+      assert.equal(p.store.lease(run.id)?.seq, 4);
+    } finally {
+      await p.stop();
+      await f.cleanup();
+    }
+  });
+}
+
+for (const rejection of ["错会话", "超限"] as const) {
+  test(`B1 服务端拒收${rejection}回报后，执行仍能保存失败终态和原因`, async () => {
+    // 全仓检查发现，拒收未推进服务端序号，连接器却用再下一个序号发送终态。
+    // 分别从业务校验和请求体限额触发拒收，确认最终记录真实原因，而非等待租约过期。
+    const f = await fixture();
+    const bodyLimit = 1024;
+    const configPath = resolve(f.dir, "config.yaml");
+    await writeFile(
+      configPath,
+      `tasks:\n  wakeupResultTextLimit: 5000\n  runReportBodyBytes: ${bodyLimit}\n`,
+    );
+    const p = await f.build(false, configPath);
+    const connector = new TaskConnector(p.base, {
+      workspace: f.dir,
+      mode: "fake",
+      async execute(_text, _signal, hooks) {
+        hooks.session("current-session");
+        hooks.update({
+          sessionId:
+            rejection === "错会话" ? "wrong-session" : "current-session",
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text:
+                rejection === "超限" ? "x".repeat(bodyLimit + 1) : "错会话回报",
+            },
+          },
+        });
+        return "end_turn";
+      },
+    });
+    try {
+      connector.start();
+      const taskId = await publishReviewTask(p.base, "检查拒收后的结束回报");
+      const run = await until(
+        async () => p.store.detail(taskId)?.runs[0],
+        (entry) => Boolean(entry?.endedAt),
+      );
+      assert.ok(run?.endedAt);
+      assert.equal(run.status, "failed", run.error ?? "拒收原因应随终态保存");
+      assert.match(
+        run.error ?? "",
+        rejection === "超限" ? /请求内容过大/ : /通知无效|会话不匹配/,
+      );
+      assert.equal(run.output, "");
+      assert.equal(p.store.lease(run.id)?.seq, 2);
+    } finally {
+      await connector.close();
+      await p.stop();
+      await f.cleanup();
+    }
+  });
+}
+
+for (const lostReplies of [1, 2]) {
+  test(`B1 通知已落盘但丢失 ${lostReplies} 次确认时，重发同一序号且只应用一次`, async () => {
+    // 检查发现 HTTP 响应丢失时无法区分已提交和未提交。沿用原序号补确认，重发也失联时仍要保存终态。
+    const f = await fixture();
+    const p = await f.build(false);
+    try {
+      let socket: import("node:net").Socket | undefined;
+      p.server.prependListener("request", (request) => {
+        if (request.url?.endsWith("/report")) socket = request.socket;
+      });
+      const submit = p.service.report.bind(p.service);
+      const attempts: Array<{ seq: number; duplicate: boolean }> = [];
+      const terminal: boolean[] = [];
+      p.service.report = (...args) => {
+        const result = submit(...args);
+        if (args[3].type === "notification") {
+          attempts.push({ seq: args[2], duplicate: result.duplicate });
+          if (attempts.length <= lostReplies) socket?.destroy();
+        }
+        if (args[3].type === "finished") terminal.push(result.duplicate);
+        return result;
+      };
+      p.connector.start();
+      const taskId = await publishReviewTask(p.base, "[settings-check]");
+      const run = await until(
+        async () => p.store.detail(taskId)?.runs[0],
+        (entry) => Boolean(entry?.endedAt),
+      );
+      assert.equal(run?.status, lostReplies === 1 ? "succeeded" : "failed");
+      assert.equal(run?.output, "executed:A/medium");
+      assert.equal(attempts.length, 2);
+      assert.equal(attempts[0]?.seq, attempts[1]?.seq);
+      assert.deepEqual(
+        attempts.map(({ duplicate }) => duplicate),
+        [false, true],
+      );
+      assert.deepEqual(terminal, lostReplies === 1 ? [false] : [true, false]);
+    } finally {
+      await p.stop();
+      await f.cleanup();
+    }
+  });
+}

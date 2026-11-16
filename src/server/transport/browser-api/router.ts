@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { decisionSchema, LIMITS } from "../../../shared/protocol.js";
+import { dispatchTaskSchema } from "../../../shared/host-wakeup.js";
 import { AppError, type TaskService } from "../../tasks/service.js";
 import { taskExchange } from "../task-communication.js";
 import { browserEvents } from "./events.js";
@@ -118,6 +119,27 @@ export function browserApiRouter(
         "retry",
         { taskId },
         /* 重新排队当前任务轮次并返回任务 ID。 */ () => service.retry(taskId),
+      ),
+    );
+  });
+  router.post("/api/tasks/:id/dispatch", (req, res) => {
+    // 校验并处理网页派发请求，把待派发任务交给指定执行者。
+    const taskId = req.params.id;
+    const { targetHarness } = dispatchTaskSchema
+      .omit({ action: true, taskId: true })
+      .parse(req.body ?? {});
+    res.json(
+      taskExchange(
+        store,
+        store.taskMessageScope(taskId),
+        "publisher",
+        "dispatch",
+        { taskId, targetHarness },
+        () => {
+          // 派发待派发任务并返回确认。
+          const result = service.dispatchTask(taskId, targetHarness);
+          return { ok: true, taskId: result.taskId };
+        },
       ),
     );
   });

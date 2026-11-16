@@ -20,7 +20,6 @@ import {
   auditPageSchema,
   bootstrapSchema,
   detailSchema,
-  publishResultSchema,
   usageCountsSchema,
 } from "../src/shared/protocol.js";
 import { acpRunRecordings } from "./fixtures/acp-run-recording.js";
@@ -118,16 +117,15 @@ for (const data of acpRunRecordings) {
         assert.ok(response.ok, `${path} returned ${response.status}`);
         return response.json();
       };
-      const { taskId } = publishResultSchema.parse(
-        await api("/tasks", {
-          title: "Recorded ACP read",
-          description: "Replay recorded output and tool events",
-          publisherName: "Offline test",
-          targetHarness: data.harness,
-          requestedSettings: data.settings,
-          approvalTargets: [],
-        }),
-      );
+      // 统一发单入口收敛到 MCP 后，离线回放直接走服务发单保持用例聚焦执行链路。
+      const { taskId } = platform.service.publish({
+        title: "Recorded ACP read",
+        description: "Replay recorded output and tool events",
+        publisherName: "Offline test",
+        targetHarness: data.harness,
+        requestedSettings: data.settings,
+        approvalTargets: [],
+      });
       const streamed = new Set<string>();
       platform.service.events.on("changed", () => {
         const run = platform.store.detail(taskId)?.runs[0];

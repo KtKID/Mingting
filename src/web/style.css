@@ -401,6 +401,10 @@ h1 {
   border-radius: 50%;
   background: currentColor;
 }
+.status-awaiting_dispatch {
+  color: #6b5b95;
+  background: #f1effa;
+}
 .status-running {
   color: #5b7397;
   background: #edf2fa;
@@ -593,6 +597,14 @@ dialog::backdrop {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 24px;
+}
+.dispatch-controls {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.dispatch-controls input {
+  flex: 1;
 }
 .detail-dialog {
   height: 100dvh;
@@ -891,6 +903,10 @@ pre {
   :root:not([data-theme="light"]) .status {
     background: #30352c;
     color: #a4ac99;
+  }
+  :root:not([data-theme="light"]) .status-awaiting_dispatch {
+    background: #322f42;
+    color: #b9afe0;
   }
   :root:not([data-theme="light"]) .status-running {
     background: #293342;

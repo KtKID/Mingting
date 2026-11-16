@@ -216,6 +216,9 @@ test(
             source: { hostId, publisherSessionId: sessionId, originTurn },
           },
         );
+        // 还原退役发布路径遗留的 queued 状态，模拟无执行者的历史任务。
+        task.status = "queued";
+        platform.store.saveTask(task);
         platform.store.recordHostPublication(
           hostId,
           publishRequestId,
@@ -404,6 +407,7 @@ test(
         title: "Write test file",
         description: "Write one line",
         publisherName: "宿主",
+        targetHarness: "Codex",
         approvalTargets: [],
       };
       const publish = async (
@@ -489,6 +493,10 @@ test(
       assert.equal(platform.store.list().length, 1);
 
       const owner = { ownerId: randomUUID(), claimId: randomUUID() };
+      platform.service.registerHarness({
+        ownerId: owner.ownerId,
+        harnessName: "Codex",
+      });
       const { run } = platform.service.claim(receipt.taskId, owner);
       platform.service.report(run.id, owner, 1, {
         type: "session",

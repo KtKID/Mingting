@@ -16,6 +16,7 @@ import {
 import { wakeupAcknowledgementSchema } from "../../shared/task-wakeup.js";
 import { AppError, type TaskService } from "../tasks/service.js";
 import type { HostPublisher } from "../tasks/publication.js";
+import { releaseShortRequestSlot } from "./http-middleware.js";
 import { subscriberDecision } from "./subscriber/decision.js";
 import { taskExchange, taskMessage } from "./task-communication.js";
 import { withTaskUrl } from "./task-url.js";
@@ -23,10 +24,12 @@ import { withTaskUrl } from "./task-url.js";
 /** 提供 MCP 工具，并为每个请求组装独立的 MCP 传输。 */
 export function mcpRouter(
   service: TaskService,
+  approvalWaitMs: number,
   readPublisher?: (request: Request, raw: unknown) => HostPublisher,
 ) {
   const router = Router();
   const { store } = service;
+  const waitSchema = approvalWaitSchema(approvalWaitMs);
   router.post("/mcp", async (req, res) => {
     // 为当前请求创建无会话的 MCP 服务，注册工具并处理请求。
     const mcp = new McpServer({ name: "task-platform-mvp", version: "0.2.0" });
@@ -46,8 +49,9 @@ export function mcpRouter(
         },
       },
       async (input, extra) => {
-        // 处理 MCP 新建或追加发单，按宿主上下文鉴权并记录回执。
+        // 处理 MCP 新建、追加或派发命令，按宿主上下文鉴权并记录回执。
         let failedAppend: TaskMessageScope | undefined;
+        let failedDispatch: TaskMessageScope | undefined;
         try {
           const raw = extra._meta?.[publisherContextKey];
           if (raw !== undefined && !readPublisher)
@@ -61,6 +65,17 @@ export function mcpRouter(
             service.isOriginalPublisher(input.taskId, publisher)
           )
             failedAppend = store.taskMessageScope(input.taskId);
+          if (input.action === "dispatch" && input.taskId) {
+            failedDispatch = store.taskMessageScope(input.taskId);
+            taskMessage(
+              store,
+              failedDispatch,
+              "publisher",
+              "receive",
+              "dispatch",
+              input,
+            );
+          }
           const result = withTaskUrl(
             req,
             service.publishCommand(input, publisher),
@@ -74,7 +89,11 @@ export function mcpRouter(
             scope,
             "publisher",
             "send",
-            input.action === "append" ? "append.response" : "new.response",
+            input.action === "append"
+              ? "append.response"
+              : input.action === "dispatch"
+                ? "dispatch.response"
+                : "new.response",
             result,
           );
           return {
@@ -97,6 +116,16 @@ export function mcpRouter(
               "publisher",
               "send",
               "append.response",
+              { error: e.message },
+            );
+          }
+          if (failedDispatch && e instanceof AppError) {
+            taskMessage(
+              store,
+              failedDispatch,
+              "publisher",
+              "send",
+              "dispatch.response",
               { error: e.message },
             );
           }
@@ -148,8 +177,8 @@ export function mcpRouter(
       "wait_for_approval",
       {
         title: "订阅任务审批",
-        description: `使用 ${publishTaskToolName} 返回的 approvalSubscription 等待审批（每次最多25秒）。检查完整工具上下文并调用 submit_approval_decision；任务仍活动时持续等待。已提交意见的审批会保留在快照中。`,
-        inputSchema: approvalWaitSchema,
+        description: `使用 ${publishTaskToolName} 返回的 approvalSubscription 等待审批（每次最多 ${approvalWaitMs / 1000} 秒）。检查完整工具上下文并调用 submit_approval_decision。任务仍活动时持续等待。已提交意见的审批会保留在快照中。`,
+        inputSchema: waitSchema,
         annotations: {
           readOnlyHint: true,
           destructiveHint: false,
@@ -166,11 +195,17 @@ export function mcpRouter(
           taskMessage(store, scope, "publisher", "receive", "approval.wait", {
             waitMs: input.waitMs,
           });
-          const result = await service.waitForApproval(
+          const waiting = service.waitForApproval(
             input,
             input.waitMs,
             extra.signal,
           );
+          if (input.waitMs > 0) {
+            // 审批等待由任务服务自己的数量和时限管理，交回普通请求名额。
+            res.setTimeout(0);
+            releaseShortRequestSlot(res);
+          }
+          const result = await waiting;
           taskMessage(
             store,
             scope,

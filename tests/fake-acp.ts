@@ -1,7 +1,9 @@
 // A real child process speaking ACP using the official SDK; never executes commands or calls a model.
 import { Readable, Writable } from "node:stream";
 import { randomUUID } from "node:crypto";
-import { appendFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { appendFileSync, writeFileSync } from "node:fs";
 import {
   agent,
   methods,
@@ -88,6 +90,32 @@ const connection = agent({ name: "fake-codex-acp" })
     const prompt = ctx.params.prompt
       .map((p) => (p.type === "text" ? p.text : ""))
       .join("");
+    if (prompt.includes("[review-b3-descendant]")) {
+      const pidFile = process.env.FAKE_DESCENDANT_PID_FILE;
+      if (!pidFile) throw new Error("缺少测试进程编号文件");
+      const linger = `process.on("SIGTERM", () => {}); setTimeout(() => process.exit(0), 12_000);`;
+      const descendant = spawn(
+        process.execPath,
+        [
+          "-e",
+          `${linger}
+           const { spawn } = require("node:child_process");
+           const child = spawn(process.execPath, ["-e", ${JSON.stringify(linger + " process.send(process.pid);")}], {stdio: ["ignore", "ignore", "ignore", "ipc"]});
+           child.once("message", (pid) => {
+             child.disconnect();
+             child.unref();
+             process.send([process.pid, pid]);
+           });`,
+        ],
+        { stdio: ["ignore", "ignore", "ignore", "ipc"] },
+      );
+      const [pids] = await once(descendant, "message");
+      writeFileSync(pidFile, JSON.stringify(pids));
+      descendant.disconnect();
+      descendant.unref();
+      if (prompt.includes("[crash]")) process.exit(1);
+      return { stopReason: "end_turn" };
+    }
     if (prompt.includes("[cancel-usage]")) {
       const cancelled = new Promise<void>((resolve) => {
         finishOnCancel = resolve;

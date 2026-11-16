@@ -10,6 +10,7 @@ import {
 import {
   type HostPublisherContext,
   appendTaskSchema,
+  dispatchTaskSchema,
 } from "../../shared/host-wakeup.js";
 import type { Store } from "../storage/store.js";
 import type { WakeupDelivery } from "../wakeup/task-wakeup.js";
@@ -73,6 +74,8 @@ export class TaskPublication {
       if (!task) throw new AppError(404, "任务不存在");
       const latest = this.store.turn(task.id);
       if (!latest) throw new AppError(409, "历史任务不支持追加");
+      if (task.status === "awaiting_dispatch")
+        throw new AppError(409, "任务尚未派发；请先派发或取消后重新发布");
       if (!this.isOriginalPublisher(task.id, publisher))
         throw new AppError(403, "只有原发布会话可以追加");
       const existing = this.store.hostPublication(publisher.hostId, requestId);
@@ -148,13 +151,40 @@ export class TaskPublication {
     if (result.event) this.available(result.event);
     return { taskId: result.taskId, taskTurn: result.taskTurn };
   }
-  /** 校验统一发单命令，并按动作创建任务或追加一轮。 */
+  /** 校验统一发单命令，并按动作创建任务、追加一轮或派发任务。 */
   publishCommand(raw: unknown, publisher?: HostPublisher) {
     if (this.isClosed()) throw new AppError(503, "服务正在停止");
     const command = taskCommandSchema.parse(raw);
     if (command.action === "append") return this.append(command, publisher);
+    if (command.action === "dispatch") return this.dispatch(command);
     const { action: _action, ...fields } = command;
     return this.publish(fields, publisher);
+  }
+  /** 将待派发任务交给指定执行者排队，并产生投递事件。 */
+  dispatch(command: z.infer<typeof dispatchTaskSchema>) {
+    if (this.isClosed()) throw new AppError(503, "服务正在停止");
+    const { event, taskId, taskTurn } = this.store.transaction(() => {
+      // 原子校验待派发状态并解析执行者，随后排队并投递。
+      const task = this.store.task(command.taskId);
+      if (!task) throw new AppError(404, "任务不存在");
+      if (task.status !== "awaiting_dispatch")
+        throw new AppError(409, "任务已派发或已结束");
+      const targetHarness = command.targetHarness ?? task.targetHarness;
+      if (!targetHarness) throw new AppError(400, "派发需要指定执行者");
+      if (this.store.countActive() >= LIMITS.queue)
+        throw new AppError(429, "队列已满");
+      task.targetHarness = targetHarness;
+      task.status = "queued";
+      this.store.saveTask(task);
+      const scope = this.store.taskMessageScope(task.id);
+      return {
+        taskId: task.id,
+        taskTurn: scope?.taskTurn ?? 1,
+        event: this.store.deliver(task.id),
+      };
+    });
+    if (event) this.available(event);
+    return { taskId, taskTurn };
   }
   /** 校验发单和唤醒授权，生成结果回执与可用的审批订阅凭据。 */
   publish(raw: PublishTask, publisher?: HostPublisher) {
@@ -244,7 +274,13 @@ export class TaskPublication {
           fingerprint,
           task.id,
         );
-      return { task, taskTurn: 1, event: this.store.deliver(task.id) };
+      // 只有指定执行者的任务进入投递队列，未指定的保持待派发。
+      return {
+        task,
+        taskTurn: 1,
+        event:
+          task.status === "queued" ? this.store.deliver(task.id) : undefined,
+      };
     });
     if (result.event) this.available(result.event);
     const subscription = { taskId: result.task.id, subscriptionToken };

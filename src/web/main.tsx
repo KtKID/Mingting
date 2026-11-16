@@ -83,6 +83,7 @@ function UsageNumbers({
 }
 
 const statusNames: Record<Task["status"], string> = {
+  awaiting_dispatch: "待派发",
   queued: "排队中",
   running: "执行中",
   awaiting_approval: "待审批",
@@ -222,6 +223,7 @@ function App() {
   const [search, setSearch] = useState("");
   const [form, setForm] = useState(false);
   const [targetHarness, setTargetHarness] = useState("");
+  const [dispatchHarness, setDispatchHarness] = useState("");
   const [modelId, setModelId] = useState("");
   const [reasoningEffort, setReasoningEffort] = useState("");
   const targetName = targetHarness.trim().toLowerCase();
@@ -376,6 +378,23 @@ function App() {
       setBusy(false);
     }
   }
+  async function dispatchSelected() {
+    // 派发当前待派发任务；执行者必填，成功后状态由实时快照刷新。
+    const harness = dispatchHarness.trim();
+    if (!selected || !harness) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api("/tasks/" + selected + "/dispatch", z.unknown(), {
+        targetHarness: harness,
+      });
+      setDispatchHarness("");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
   async function showAudit(cursor?: string) {
     if (!selected || !selectedRun) return;
     const request = ++auditRequest.current;
@@ -455,10 +474,12 @@ function App() {
     }
   }
   const waiting = tasks.filter((t) => t.status === "awaiting_approval").length;
+  const pending = tasks.filter((t) => t.status === "awaiting_dispatch").length;
   const done = tasks.filter((t) => t.status === "succeeded").length;
   const visible = tasks.filter(
     (t) =>
       (filter === "all" ||
+        (filter === "dispatch" && t.status === "awaiting_dispatch") ||
         (filter === "approval" && t.status === "awaiting_approval") ||
         (filter === "done" && t.status === "succeeded")) &&
       `${t.title} ${t.description} ${t.publisherName}`
@@ -514,7 +535,7 @@ function App() {
           <div>
             <div className="eyebrow">WORKSPACE / TASKS</div>
             <h1>让任务继续向前。</h1>
-            <p className="subtitle">发布、执行与审批，在一张任务列表里。</p>
+            <p className="subtitle">发布、派发与审批，在一张任务列表里。</p>
           </div>
           <div className="heading-actions">
             <a className="secondary replay-entry" href="/approval-tests/">
@@ -549,6 +570,7 @@ function App() {
             <div className="tabs" role="tablist" aria-label="筛选任务">
               {[
                 { id: "all", label: "全部任务", count: tasks.length },
+                { id: "dispatch", label: "待派发", count: pending },
                 { id: "approval", label: "待我审批", count: waiting },
                 { id: "done", label: "已完成", count: done },
               ].map((f) => (
@@ -674,7 +696,7 @@ function App() {
             按身份订阅，按目标执行。
           </span>
           <span>
-            发布任务 <span className="muted">→</span> 指定执行者{" "}
+            发布任务 <span className="muted">→</span> 选执行者派发{" "}
             <span className="muted">→</span> 查看结果
           </span>
         </footer>
@@ -700,7 +722,9 @@ function App() {
                 <Icon name="close" />
               </button>
             </div>
-            <p className="muted">选择执行者；目标离线时任务会排队等候。</p>
+            <p className="muted">
+              填写执行者会在发布后立即派发；留空则登记为待派发，不触发执行者，可稍后在任务详情里派发。
+            </p>
             {error && (
               <p role="alert" className="run-error">
                 {error}
@@ -731,7 +755,7 @@ function App() {
               <input
                 name="targetHarness"
                 list="harness-options"
-                placeholder="留空由可用订阅者领取"
+                placeholder="留空登记为待派发"
                 maxLength={40}
                 value={targetHarness}
                 onChange={(e) => {
@@ -740,16 +764,6 @@ function App() {
                   setReasoningEffort("");
                 }}
               />
-              <datalist id="harness-options">
-                {[
-                  ...new Set([
-                    ...auditedHarnessSchema.options,
-                    ...harnesses.map((h) => h.harnessName),
-                  ]),
-                ].map((name) => (
-                  <option key={name} value={name} />
-                ))}
-              </datalist>
             </label>
             {auditedSelected &&
               (capabilities ? (
@@ -907,7 +921,12 @@ function App() {
                 </div>
                 <div>
                   <dt>指定执行者</dt>
-                  <dd>{detail.task.targetHarness ?? "任一可用订阅者"}</dd>
+                  <dd>
+                    {detail.task.targetHarness ??
+                      (detail.task.status === "awaiting_dispatch"
+                        ? "未指定"
+                        : "任一可用订阅者")}
+                  </dd>
                 </div>
                 {selectedRun && (
                   <div>
@@ -1338,7 +1357,35 @@ function App() {
                   </p>
                 </section>
               )}
-              {["running", "awaiting_approval", "queued"].includes(
+              {detail.task.status === "awaiting_dispatch" && (
+                <section className="result" aria-label="派发任务">
+                  <div className="section-title">
+                    <Icon name="arrow" />
+                    <h3>派发任务</h3>
+                  </div>
+                  <p className="small muted">
+                    该任务已登记未派发。填写执行者后派发；目标离线时任务会排队等候。
+                  </p>
+                  <div className="dispatch-controls">
+                    <input
+                      aria-label="派发执行者"
+                      list="harness-options"
+                      placeholder="例如：ZCode"
+                      maxLength={40}
+                      value={dispatchHarness}
+                      onChange={(e) => setDispatchHarness(e.target.value)}
+                    />
+                    <button
+                      className="primary"
+                      disabled={busy || !online || !dispatchHarness.trim()}
+                      onClick={() => void dispatchSelected()}
+                    >
+                      {busy ? "派发中…" : "派发"}
+                    </button>
+                  </div>
+                </section>
+              )}
+              {["awaiting_dispatch", "running", "awaiting_approval", "queued"].includes(
                 detail.task.status,
               ) && (
                 <button
@@ -1413,6 +1460,16 @@ function App() {
           {approval(activeApproval, true)}
         </Modal>
       )}
+      <datalist id="harness-options">
+        {[
+          ...new Set([
+            ...auditedHarnessSchema.options,
+            ...harnesses.map((h) => h.harnessName),
+          ]),
+        ].map((name) => (
+          <option key={name} value={name} />
+        ))}
+      </datalist>
     </>
   );
 }

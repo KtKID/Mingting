@@ -2,6 +2,7 @@ import { z } from "zod";
 import { wakeupEventSchema, wakeupTargetSchema } from "./task-wakeup.js";
 import {
   appendTaskSchema,
+  dispatchTaskSchema,
   taskFields,
   hostSessionIdSchema,
   hostWakeupTargetSchema,
@@ -186,14 +187,16 @@ export const publishTaskSchema = publishFieldsSchema.refine(
 export const taskCommandSchema = z.union([
   publishFieldsSchema.extend({ action: z.literal("new").optional() }),
   appendTaskSchema,
+  dispatchTaskSchema,
 ]);
 // MCP tool discovery requires an object schema. The service validates the exact branch.
 export const mcpTaskCommandSchema = publishFieldsSchema.partial().extend({
-  action: z.enum(["new", "append"]).optional(),
+  action: z.enum(["new", "append", "dispatch"]).optional(),
   taskId: appendTaskSchema.shape.taskId.optional(),
-  description: taskFields.description,
+  description: taskFields.description.optional(),
 });
 export const taskStatusSchema = z.enum([
+  "awaiting_dispatch",
   "queued",
   "running",
   "awaiting_approval",
@@ -393,16 +396,11 @@ export const subscriberDecisionSchema = approvalSubscriptionSchema
     ...decisionSchema.shape,
   })
   .strict();
-export const approvalWaitSchema = approvalSubscriptionSchema
-  .extend({
-    waitMs: z
-      .number()
-      .int()
-      .min(0)
-      .max(LIMITS.approvalWaitMs)
-      .default(LIMITS.approvalWaitMs),
-  })
-  .strict();
+export function approvalWaitSchema(limitMs: number) {
+  return approvalSubscriptionSchema
+    .extend({ waitMs: z.int().min(0).max(limitMs).default(limitMs) })
+    .strict();
+}
 export const approvalSnapshotSchema = z.object({
   type: z.literal("approval.snapshot"),
   taskId: z.string(),
@@ -480,6 +478,7 @@ export const connectorUpdateSchema = z.discriminatedUnion("type", [
 export const reportSchema = ownerSchema
   .extend({ seq: z.number().int().positive(), update: connectorUpdateSchema })
   .strict();
+export const reportResultSchema = z.strictObject({ duplicate: z.boolean() });
 export const permissionSubmissionSchema = ownerSchema
   .extend({
     requestId: z.union([z.string(), z.number(), z.null()]),

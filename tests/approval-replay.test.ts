@@ -127,7 +127,8 @@ test("AR3 selected-task connector leaves unrelated queued tasks untouched", asyn
     )
       await delay(30);
     assert.equal(p.store.task(selected.taskId)?.status, "awaiting_approval");
-    assert.equal(p.store.task(other.taskId)?.status, "queued");
+    // 未指定执行者的任务保持待派发，不被无关连接器领取。
+    assert.equal(p.store.task(other.taskId)?.status, "awaiting_dispatch");
     assert.equal(p.store.detail(other.taskId)?.runs.length, 0);
   } finally {
     await connector.close();

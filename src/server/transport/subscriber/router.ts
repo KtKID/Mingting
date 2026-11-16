@@ -6,6 +6,7 @@ import {
   subscriberDecisionSchema,
 } from "../../../shared/protocol.js";
 import { AppError, type TaskService } from "../../tasks/service.js";
+import { releaseShortRequestSlot } from "../http-middleware.js";
 import { taskMessage } from "../task-communication.js";
 import { subscriberDecision } from "./decision.js";
 
@@ -138,6 +139,7 @@ export function subscriberRouter(service: TaskService) {
     });
     // Subscribe before reading the persisted snapshot and finished runs.
     send();
+    releaseShortRequestSlot(res);
   });
   router.post("/subscriber/decision", (req, res) => {
     // 接收本机客户端通过 HTTP 提交的订阅审批决定。

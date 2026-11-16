@@ -382,7 +382,8 @@ export class Store {
       ...taskInput,
       approvalTargets: input.approvalTargets ?? ["subscriber"],
       id: randomUUID(),
-      status: "queued",
+      // 未指定执行者时仅登记为待派发，不进入执行队列。
+      status: input.targetHarness ? "queued" : "awaiting_dispatch",
       currentRunId: null,
       createdAt: now(),
       updatedAt: now(),

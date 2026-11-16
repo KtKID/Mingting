@@ -31,6 +31,7 @@ import {
   selectOption,
   type SetOption,
 } from "./acp-settings.js";
+import { stopAcpProcess } from "./acp-process.js";
 export type AcpTelemetry = {
   usage(
     result: unknown,
@@ -70,6 +71,11 @@ export type AdapterConfig = {
   }) => void;
 };
 export type RunHooks = {
+  diagnosticContext?: {
+    taskId: string;
+    runId: string;
+    taskTurn: number | null;
+  };
   session(id: string): void;
   discovery(value: InitializeResponse): void;
   update(value: SessionNotification): void;
@@ -321,8 +327,24 @@ export class AcpAdapter {
       stdio: ["pipe", "pipe", "pipe"],
       detached: process.platform !== "win32",
     });
+    const exited = once(child, "exit").then(
+      () => {},
+      () => {},
+    );
     const name = this.config.harnessName ?? "Codex";
-    console.info(`${name} ACP 已启动 pid=${child.pid}`);
+    const log = (event: string, fields: Record<string, unknown> = {}) => {
+      console.info(
+        JSON.stringify({
+          event,
+          at: new Date().toISOString(),
+          harness: name,
+          acpPid: child.pid ?? null,
+          ...hooks.diagnosticContext,
+          ...fields,
+        }),
+      );
+    };
+    log("acp.process.spawn");
     // Drain stderr without exposing credential-bearing adapter diagnostics to the web.
     child.stderr.resume();
     child.stdin.on(
@@ -332,6 +354,7 @@ export class AcpAdapter {
     let sessionId: string | undefined;
     let sessionDetails: unknown;
     let promptStarted = false;
+    let requestSeq = 0;
     let previousContext: ContextObservation | undefined;
     const connection = client({ name: "task-platform-mvp" })
       .onNotification(methods.client.session.update, (ctx) => {
@@ -443,29 +466,41 @@ export class AcpAdapter {
     try {
       /** 同时等待协议响应、进程退出、取消和超时，结束后清理计时器。 */
       const request = async <T>(
-        p: Promise<T>,
+        method: string,
+        send: () => Promise<T>,
         ms: number = LIMITS.initMs,
       ): Promise<T> => {
+        const fields = { method, requestSeq: ++requestSeq, timeoutMs: ms };
+        const startedAt = performance.now();
+        let outcome = "error";
         let timer: NodeJS.Timeout | undefined;
+        log("acp.request.started", fields);
         try {
-          return await Promise.race([
-            p,
+          const result = await Promise.race([
+            send(),
             failed,
             aborted,
             new Promise<never>((_, reject) => {
               // 为当前请求安排独立的超时上限。
-              timer = setTimeout(
-                /* 达到请求时限时返回 ACP 超时错误。 */ () =>
-                  reject(new Error("ACP 请求超时")),
-                ms,
-              );
+              timer = setTimeout(() => {
+                outcome = "timeout";
+                reject(new Error("ACP 请求超时"));
+              }, ms);
             }),
           ]);
+          outcome = "ok";
+          return result;
         } finally {
           clearTimeout(timer);
+          log("acp.request.finished", {
+            ...fields,
+            elapsedMs: Math.round(performance.now() - startedAt),
+            outcome: signal.aborted ? "aborted" : outcome,
+            promptStarted,
+          });
         }
       };
-      const init = await request(
+      const init = await request(methods.agent.initialize, () =>
         connection.agent.request(methods.agent.initialize, {
           protocolVersion: PROTOCOL_VERSION,
           clientCapabilities: {
@@ -477,6 +512,10 @@ export class AcpAdapter {
       );
       if (init.protocolVersion !== PROTOCOL_VERSION)
         throw new Error("ACP 协议版本不兼容。");
+      log("acp.initialized", {
+        adapterVersion: init.agentInfo?.version?.slice(0, 64) ?? null,
+        protocolVersion: init.protocolVersion,
+      });
       hooks.discovery(init);
       if (this.config.authMethod) {
         if (
@@ -486,7 +525,7 @@ export class AcpAdapter {
           )
         )
           throw new Error("适配器不支持所选认证方式");
-        await request(
+        await request(methods.agent.authenticate, () =>
           connection.agent.request(methods.agent.authenticate, {
             methodId: this.config.authMethod,
             ...(this.config.authMethod === "cached_token"
@@ -502,7 +541,7 @@ export class AcpAdapter {
         // 有原会话 ID 时加载该会话，否则在当前工作目录新建会话。
         if (existingSessionId)
           return {
-            ...(await request(
+            ...(await request(methods.agent.session.load, () =>
               connection.agent.request(methods.agent.session.load, {
                 sessionId: existingSessionId,
                 cwd: this.config.workspace,
@@ -511,7 +550,7 @@ export class AcpAdapter {
             )),
             sessionId: existingSessionId,
           };
-        return request(
+        return request(methods.agent.session.new, () =>
           connection.agent.request(methods.agent.session.new, {
             cwd: this.config.workspace,
             mcpServers: [],
@@ -520,6 +559,7 @@ export class AcpAdapter {
       })();
       sessionId = session.sessionId;
       sessionDetails = session;
+      log("acp.session.ready", { sessionId: sessionId.slice(0, 128) });
       hooks.session(sessionId);
       /** 将会话设置、写入选项的方法和会话元数据交给检查回调。 */
       const configure = () =>
@@ -530,7 +570,7 @@ export class AcpAdapter {
             value,
           ) =>
             (
-              await request(
+              await request(methods.agent.session.setConfigOption, () =>
                 connection.agent.request(
                   methods.agent.session.setConfigOption,
                   { sessionId: session.sessionId, configId, value },
@@ -555,7 +595,7 @@ export class AcpAdapter {
           )
         )
           throw new Error(`适配器未提供 ${mode} 模式，已停止。`);
-        await request(
+        await request(methods.agent.session.setMode, () =>
           connection.agent.request(methods.agent.session.setMode, {
             sessionId,
             modeId: mode,
@@ -573,7 +613,11 @@ export class AcpAdapter {
       });
       let result: PromptResponse;
       try {
-        result = await request(prompt, LIMITS.runMs);
+        result = await request(
+          methods.agent.session.prompt,
+          () => prompt,
+          LIMITS.runMs,
+        );
       } catch (error) {
         if (!complete) throw error;
         if (!signal.aborted) {
@@ -610,44 +654,26 @@ export class AcpAdapter {
       throw e;
     } finally {
       signal.removeEventListener("abort", abort);
-      child.stdin.end();
-      const exited = once(child, "close").then(
-        /* 子进程关闭时标记等待已结束。 */ () => true,
-        /* 关闭事件等待失败时也结束等待，继续清理。 */ () => true,
-      );
-      /** 向 ACP 子进程或进程组发送退出信号。 */
-      const kill = (sig: NodeJS.Signals) => {
-        try {
-          if (process.platform !== "win32" && child.pid)
-            process.kill(-child.pid, sig);
-          else if (child.exitCode === null && child.signalCode === null)
-            child.kill(sig);
-        } catch {}
+      const cleanupStartedAt = performance.now();
+      let outcome = "error";
+      const cleanupFields = {
+        sessionId: sessionId?.slice(0, 128) ?? null,
+        promptStarted,
       };
-      let timer: NodeJS.Timeout | undefined;
-      const timeout = new Promise<boolean>((r) => {
-        // 给自然退出留出有限等待时间。
-        timer = setTimeout(
-          /* 宽限期结束后报告子进程尚未确认关闭。 */ () => r(false),
-          LIMITS.killMs,
-        );
-      });
-      const stopped =
-        child.exitCode !== null ||
-        child.signalCode !== null ||
-        (await Promise.race([exited, timeout]));
-      clearTimeout(timer);
-      if (stopped) kill("SIGTERM"); // Clean up any descendant left behind by the ACP leader.
-      if (!stopped) {
-        kill("SIGTERM");
-        const hardKill = setTimeout(
-          /* 进程未在宽限期内退出时发送强制终止信号。 */ () => kill("SIGKILL"),
-          LIMITS.killMs,
-        );
-        await exited;
-        clearTimeout(hardKill);
+      log("acp.cleanup.started", cleanupFields);
+      try {
+        await stopAcpProcess(child, exited);
+        outcome = "ok";
+      } finally {
+        connection.close();
+        log("acp.cleanup.finished", {
+          ...cleanupFields,
+          outcome,
+          elapsedMs: Math.round(performance.now() - cleanupStartedAt),
+          exitCode: child.exitCode,
+          signal: child.signalCode,
+        });
       }
-      connection.close();
     }
   }
 }
