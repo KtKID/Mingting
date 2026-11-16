@@ -11,6 +11,8 @@ import { httpErrorHandler, localHttpGuard } from "./http-middleware.js";
 import { mcpRouter } from "./mcp.js";
 import { subscriberRouter } from "./subscriber/router.js";
 import { webAssetsRouter } from "./web-assets.js";
+import type { ProjectDirectoryDialog } from "../records/directory-picker.js";
+import { ProjectRecords } from "../records/service.js";
 
 type Config = {
   dbPath: string;
@@ -20,6 +22,7 @@ type Config = {
   wakeupDelivery?: WakeupDelivery;
   wakeupHosts?: HostWakeupHost[];
   configPath?: string;
+  chooseProjectDirectory?: ProjectDirectoryDialog;
 };
 
 /** 组装任务服务、数据库、中间件与 HTTP 路由。 */
@@ -27,6 +30,7 @@ export function createPlatform(config: Config) {
   const { workspace, mode = "codex" } = config;
   const { tasks, web } = loadConfig(config.configPath);
   const store = new Store(config.dbPath);
+  const records = new ProjectRecords(store);
   const service = new TaskService(
     store,
     workspace,
@@ -35,6 +39,7 @@ export function createPlatform(config: Config) {
   );
 
   const app = express();
+  service.events.once("close", () => records.close());
   app.disable("x-powered-by");
   app.set("trust proxy", false);
   app.use(localHttpGuard(web?.frameAncestor));
@@ -44,10 +49,20 @@ export function createPlatform(config: Config) {
     ? hostWakeupRouter(service, config.wakeupHosts, tasks.wakeupResultTextLimit)
     : undefined;
   if (wakeupHost) app.use("/wakeup-host", wakeupHost.router);
-  app.use(browserApiRouter(service, workspace, mode));
+  app.use(
+    browserApiRouter(
+      service,
+      workspace,
+      mode,
+      records,
+      config.chooseProjectDirectory,
+    ),
+  );
   app.use(subscriberRouter(service));
-  app.use(mcpRouter(service, tasks.approvalWaitMs, wakeupHost?.publisher));
+  app.use(
+    mcpRouter(service, tasks.approvalWaitMs, wakeupHost?.publisher, records),
+  );
   app.use(webAssetsRouter());
   app.use(httpErrorHandler);
-  return { app, service, store };
+  return { app, service, store, records };
 }

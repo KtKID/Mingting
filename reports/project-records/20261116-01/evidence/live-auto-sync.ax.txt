@@ -1,0 +1,65 @@
+Browser tab: 1, Title: "明庭 · 任务台", URL: "http://127.0.0.1:60390/records?project=a4e09ef235912d47ae47e402".
+1 AXWebArea 明庭 · 任务台, URL: 127.0.0.1:60390/records?project=a4e09ef235912d47ae47e402
+	2 container root
+		3 container
+			4 link Description: 明 明庭 WORKSPACE, Value: 127.0.0.1:60390/
+			5 text 本机工作空间
+		6 container 工作空间页面
+			7 link Description: 任务台, Value: 127.0.0.1:60390/
+			8 link Description: 项目记录, Value: 127.0.0.1:60390/records
+		9 container
+			10 text PROJECTS / 项目记录
+			11 heading 看清每个项目的下一步。, Value: 1
+				12 text 看清每个项目的下一步。
+			13 text 按 Spec 查看任务进展，随时回到原始依据。
+			14 button 刷新记录
+			15 button 接入项目
+			16 text 项目记录已同步
+			17 tab group 项目
+				18 tab (selected, settable, boolean) 明庭 6 Spec, Value: 1
+明庭
+6
+Spec
+			19 container 项目摘要
+				20 text 明庭
+				21 text 6  个 Spec ·  17  个 Task
+				22 container
+					23 text 11 / 17
+				24 text 任务已完成 最近同步
+				25 text 2026/11/16 22:10:40
+			26 text ⌕
+			27 search text field (settable) Description: 搜索 Spec 或 Task, Value: 项目记录
+			28 checkbox 待关注 6, Value: 0
+			29 text 状态来自项目文档
+			30 container Spec 任务状态看板
+				31 text SPEC / 工作范围
+				32 text 待开始
+				33 text 0
+				34 text 进行中
+				35 text 0
+				36 text 待验收
+				37 text 2
+				38 text 已完成
+				39 text 11
+				40 text 待核对
+				41 text 4
+				42 container 项目记录：集中查看各项目的开发进度
+					43 container
+						44 text SPEC
+						45 heading 项目记录：集中查看各项目的开发进度, Value: 2
+							46 text 项目记录：集中查看各项目的开发进度
+						47 text 项目记录从已接入项目的 x-dev-pipeline 文档读取 Spec、Task、内部步骤和交付依据，供 Web 与后续其他展示客户端共用。 0 / 1  Task 已完成
+					48 container 待开始任务
+					49 container 进行中任务
+					50 container 待验收任务
+						51 button 查看开发任务：项目记录与 Spec / Task 状态看板
+							52 text TASK
+							53 text ↗
+							54 heading 项目记录与 Spec / Task 状态看板, Value: 3
+								55 text 项目记录与 Spec / Task 状态看板
+							56 text 待验收
+					57 container 已完成任务
+					58 container 待核对任务
+			59 text 每个 Task 保留自己的状态与依据。文档更新后，记录会自动同步。 左右滚动查看全部阶段。
+
+The focused UI element is 27 search text field (settable) Description: 搜索 Spec 或 Task, Value: 项目记录

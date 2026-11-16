@@ -32,6 +32,8 @@ import type { WakeupEvent } from "../shared/task-wakeup";
 import { publishTaskToolName } from "../shared/host-wakeup";
 import "./style.css";
 import { ApprovalCard } from "./approval-card";
+import { PageNav } from "./page-nav";
+import { ProjectRecordsPage } from "./project-records";
 
 const viewParams = new URLSearchParams(window.location.search);
 if (viewParams.get("theme") === "light")
@@ -530,6 +532,7 @@ function App() {
             "等待订阅"}
         </div>
       </header>
+      <PageNav current="tasks" />
       <main className="workspace">
         <div className="page-heading">
           <div>
@@ -1385,9 +1388,12 @@ function App() {
                   </div>
                 </section>
               )}
-              {["awaiting_dispatch", "running", "awaiting_approval", "queued"].includes(
-                detail.task.status,
-              ) && (
+              {[
+                "awaiting_dispatch",
+                "running",
+                "awaiting_approval",
+                "queued",
+              ].includes(detail.task.status) && (
                 <button
                   className="secondary full"
                   disabled={busy || !online}
@@ -1473,4 +1479,6 @@ function App() {
     </>
   );
 }
-createRoot(document.getElementById("root")!).render(<App />);
+createRoot(document.getElementById("root")!).render(
+  window.location.pathname === "/records" ? <ProjectRecordsPage /> : <App />,
+);

@@ -1,0 +1,50 @@
+[WebServer] (node:21510) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:21510) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+[WebServer] (node:21514) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 1 test using 1 worker
+
+(node:21515) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 [desktop] › tests/project-records-ui.spec.ts:284:1 › T3 submitting the displayed default name registers or renames the same Git root (5.5s)
+
+
+  1) [desktop] › tests/project-records-ui.spec.ts:284:1 › T3 submitting the displayed default name registers or renames the same Git root 
+
+    Error: expect(locator).toHaveAttribute(expected) failed
+
+    Locator: getByRole('tab', { name: /仓库默认名 desktop/ })
+    Expected: "true"
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toHaveAttribute" getByRole('tab', { name: /仓库默认名 desktop/ }) with timeout 5000ms
+      - waiting for getByRole('tab', { name: /仓库默认名 desktop/ })
+
+
+      310 |       await expect(tab).toHaveCount(0);
+      311 |       await form.getByRole("button", { name: "读取项目记录" }).click();
+    > 312 |       await expect(tab).toHaveAttribute("aria-selected", "true");
+          |                         ^
+      313 |       await expect(
+      314 |         page.getByRole("tab", { name: new RegExp(previousName) }),
+      315 |       ).toHaveCount(0);
+        at /Volumes/machub_app/proj/x-mingting/tests/project-records-ui.spec.ts:312:25
+
+    Error Context: test-results/project-records-ui-T3-subm-0cf5a-r-renames-the-same-Git-root-desktop/error-context.md
+
+    Error Context: test-results/project-records-ui-T3-subm-0cf5a-r-renames-the-same-Git-root-desktop/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/project-records-ui-T3-subm-0cf5a-r-renames-the-same-Git-root-desktop/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/project-records-ui-T3-subm-0cf5a-r-renames-the-same-Git-root-desktop/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    [desktop] › tests/project-records-ui.spec.ts:284:1 › T3 submitting the displayed default name registers or renames the same Git root 

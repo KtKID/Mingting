@@ -929,6 +929,7 @@ test("real HTTP MCP publish → SQLite → ACP child permission → browser API 
     assert.deepEqual(
       (await client.listTools()).tools.map((t) => t.name),
       [
+        "sync_project_records",
         "mcp-mingting-tool",
         "list_harnesses",
         "wait_for_approval",

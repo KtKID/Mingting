@@ -1,0 +1,82 @@
+{
+  "reviewer": "root independent review",
+  "recordedAt": "2026-11-16T14:18:19.482Z",
+  "workspace": "/Volumes/machub_app/proj/x-mingting",
+  "sourceBaseline": "26-accepted-baseline-sha256.txt",
+  "url": "http://127.0.0.1:60390/records?project=a4e09ef235912d47ae47e402",
+  "observations": [
+    {
+      "step": "open existing task board then project records using navigation",
+      "result": "initial empty record page; existing task board showed 45 tasks"
+    },
+    {
+      "step": "connect project through form",
+      "input": {
+        "projectRoot": "/Volumes/machub_app/proj/x-mingting",
+        "projectName": "明庭"
+      },
+      "result": "6 Spec, 17 Task; Codex specimen 5 Tasks with 19 internal steps"
+    },
+    {
+      "step": "open Codex live reconciliation task then source report",
+      "result": "completed, 3/3 steps, actual local unified report text displayed"
+    },
+    {
+      "step": "observe document change without clicking refresh",
+      "before": "进行中 at 2026/11/16 22:07:18",
+      "after": "待验收 at 2026/11/16 22:09:20",
+      "evidence": "live-auto-sync.ax.txt"
+    },
+    {
+      "step": "reload final build and search 项目记录",
+      "result": "one visible card; awaiting review header 1; other headers 0; project summary still 17 tasks"
+    },
+    {
+      "step": "try nested spec directory as project root",
+      "result": "ENOENT visible; existing project and 17 Tasks preserved"
+    },
+    {
+      "step": "return to unfiltered board",
+      "evidence": [
+        "live-final.ax.txt",
+        "live-final.jpg"
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "cmd": "npx --no-install tsc --noEmit",
+      "exitCode": 0
+    },
+    {
+      "cmd": "git diff --check",
+      "exitCode": 0
+    },
+    {
+      "cmd": "shasum -a 256 -c reports/project-records/20261116-01/evidence/26-accepted-baseline-sha256.txt",
+      "exitCode": 0,
+      "verified": 19
+    }
+  ],
+  "runtime": {
+    "before": "stopped",
+    "pid": 90721,
+    "port": 60390,
+    "environment": {
+      "TASK_CONNECTOR": "manual",
+      "MINGTING_CODEX_WAKEUPS": "0"
+    },
+    "harnesses": []
+  },
+  "persistedCounts": {
+    "tasks": 45,
+    "runs": 47,
+    "deliveries": 47,
+    "task_wakeup_events": 17,
+    "project_records": 1
+  },
+  "limits": [
+    "frontend branch coverage not collected",
+    "offline project error banner and high-load refresh not exercised in live browser; retained snapshot tested with real SQLite"
+  ]
+}

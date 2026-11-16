@@ -26,7 +26,7 @@ export function fakePlatform(database: string) {
 
 export default defineConfig({
   testDir: "tests",
-  testMatch: "ui.spec.ts",
+  testMatch: ["ui.spec.ts", "project-records-ui.spec.ts"],
   fullyParallel: false,
   workers: 1,
   timeout: 30000,

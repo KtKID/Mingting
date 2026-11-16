@@ -1,0 +1,33 @@
+{
+  "observedAt": "2026-11-16T15:02:49.818238+00:00",
+  "database": "/Volumes/machub_app/proj/x-mingting/var/tasks.sqlite",
+  "project": {
+    "id": "a4e09ef235912d47ae47e402",
+    "name": "明庭",
+    "root": "/Volumes/machub_app/proj/x-mingting",
+    "observedAt": "2026-11-16T15:02:48.908Z",
+    "syncError": null
+  },
+  "tasks": [
+    {
+      "id": "697d56feb146223c2df256b1",
+      "title": "选择项目目录",
+      "path": "docs/spec/project-records/tasks/task-project-directory-picker.md",
+      "phase": "completed",
+      "blocker": null,
+      "summary": "> 状态：已完成",
+      "statusSource": {
+        "path": "docs/spec/project-records/tasks/task-project-directory-picker.md",
+        "line": 4,
+        "label": "任务状态",
+        "excerpt": "> 状态：已完成"
+      }
+    }
+  ],
+  "counts": {
+    "project_records": 2,
+    "tasks": 45,
+    "runs": 47,
+    "deliveries": 47
+  }
+}

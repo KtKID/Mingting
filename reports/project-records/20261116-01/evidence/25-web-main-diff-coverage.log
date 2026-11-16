@@ -1,0 +1,6 @@
+src/web/main.tsx 3 / 10 mapped source lines executed (added side only). Uncovered: [
+   535, 1391, 1392,
+  1393, 1394, 1395,
+  1396
+]
+Added-side source lines without source mapping: [ 35, 36 ]

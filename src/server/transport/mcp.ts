@@ -20,12 +20,15 @@ import { releaseShortRequestSlot } from "./http-middleware.js";
 import { subscriberDecision } from "./subscriber/decision.js";
 import { taskExchange, taskMessage } from "./task-communication.js";
 import { withTaskUrl } from "./task-url.js";
+import { registerRecordTools } from "../records/transport.js";
+import type { ProjectRecords } from "../records/service.js";
 
 /** 提供 MCP 工具，并为每个请求组装独立的 MCP 传输。 */
 export function mcpRouter(
   service: TaskService,
   approvalWaitMs: number,
   readPublisher?: (request: Request, raw: unknown) => HostPublisher,
+  records?: ProjectRecords,
 ) {
   const router = Router();
   const { store } = service;
@@ -33,6 +36,7 @@ export function mcpRouter(
   router.post("/mcp", async (req, res) => {
     // 为当前请求创建无会话的 MCP 服务，注册工具并处理请求。
     const mcp = new McpServer({ name: "task-platform-mvp", version: "0.2.0" });
+    if (records) registerRecordTools(mcp, records);
     mcp.registerTool(
       publishTaskToolName,
       {

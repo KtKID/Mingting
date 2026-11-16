@@ -1,0 +1,95 @@
+[WebServer] (node:94593) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:94593) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+
+Running 2 tests using 1 worker
+
+[WebServer] (node:94594) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+(node:94595) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 [desktop] › tests/project-records-ui.spec.ts:86:1 › T6 record page connects two projects, filters, explains states and reads source (6.2s)
+(node:94666) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  2 [mobile-dark] › tests/project-records-ui.spec.ts:86:1 › T6 record page connects two projects, filters, explains states and reads source (6.2s)
+
+
+  1) [desktop] › tests/project-records-ui.spec.ts:86:1 › T6 record page connects two projects, filters, explains states and reads source 
+
+    Error: expect(locator).toHaveText(expected) failed
+
+    Locator:  getByRole('region', { name: 'Spec 任务状态看板' }).locator('.records-board-header > div').filter({ hasText: /^待开始\d+$/ })
+    Expected: "待开始0"
+    Received: "待开始1"
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toHaveText" getByRole('region', { name: 'Spec 任务状态看板' }).locator('.records-board-header > div').filter({ hasText: /^待开始\d+$/ }) with timeout 5000ms
+      - waiting for getByRole('region', { name: 'Spec 任务状态看板' }).locator('.records-board-header > div').filter({ hasText: /^待开始\d+$/ })
+        14 × locator resolved to <div>…</div>
+           - unexpected value "待开始1"
+
+
+      79 |       hasText: new RegExp(`^${phase}\\d+$`),
+      80 |     });
+    > 81 |     await expect(count).toHaveText(`${phase}${await cards.count()}`);
+         |                         ^
+      82 |   }
+      83 |   await expect(page.locator(".records-summary")).toContainText("8 个 Task");
+      84 | }
+        at expectVisibleColumnCounts (/Volumes/machub_app/proj/x-mingting/tests/project-records-ui.spec.ts:81:25)
+        at /Volumes/machub_app/proj/x-mingting/tests/project-records-ui.spec.ts:158:3
+
+    Error Context: test-results/project-records-ui-T6-reco-31448-ins-states-and-reads-source-desktop/error-context.md
+
+    Error Context: test-results/project-records-ui-T6-reco-31448-ins-states-and-reads-source-desktop/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/project-records-ui-T6-reco-31448-ins-states-and-reads-source-desktop/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/project-records-ui-T6-reco-31448-ins-states-and-reads-source-desktop/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [mobile-dark] › tests/project-records-ui.spec.ts:86:1 › T6 record page connects two projects, filters, explains states and reads source 
+
+    Error: expect(locator).toHaveText(expected) failed
+
+    Locator:  getByRole('region', { name: 'Spec 任务状态看板' }).locator('.records-board-header > div').filter({ hasText: /^待开始\d+$/ })
+    Expected: "待开始0"
+    Received: "待开始1"
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toHaveText" getByRole('region', { name: 'Spec 任务状态看板' }).locator('.records-board-header > div').filter({ hasText: /^待开始\d+$/ }) with timeout 5000ms
+      - waiting for getByRole('region', { name: 'Spec 任务状态看板' }).locator('.records-board-header > div').filter({ hasText: /^待开始\d+$/ })
+        14 × locator resolved to <div>…</div>
+           - unexpected value "待开始1"
+
+
+      79 |       hasText: new RegExp(`^${phase}\\d+$`),
+      80 |     });
+    > 81 |     await expect(count).toHaveText(`${phase}${await cards.count()}`);
+         |                         ^
+      82 |   }
+      83 |   await expect(page.locator(".records-summary")).toContainText("8 个 Task");
+      84 | }
+        at expectVisibleColumnCounts (/Volumes/machub_app/proj/x-mingting/tests/project-records-ui.spec.ts:81:25)
+        at /Volumes/machub_app/proj/x-mingting/tests/project-records-ui.spec.ts:158:3
+
+    Error Context: test-results/project-records-ui-T6-reco-31448-ins-states-and-reads-source-mobile-dark/error-context.md
+
+    Error Context: test-results/project-records-ui-T6-reco-31448-ins-states-and-reads-source-mobile-dark/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/project-records-ui-T6-reco-31448-ins-states-and-reads-source-mobile-dark/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/project-records-ui-T6-reco-31448-ins-states-and-reads-source-mobile-dark/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2 failed
+    [desktop] › tests/project-records-ui.spec.ts:86:1 › T6 record page connects two projects, filters, explains states and reads source 
+    [mobile-dark] › tests/project-records-ui.spec.ts:86:1 › T6 record page connects two projects, filters, explains states and reads source 

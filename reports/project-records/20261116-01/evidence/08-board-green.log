@@ -1,0 +1,18 @@
+[WebServer] (node:83957) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:83957) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+[WebServer] (node:84090) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 4 tests using 1 worker
+
+(node:84092) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [desktop] › tests/project-records-ui.spec.ts:72:1 › T6 record page connects two projects, filters, explains states and reads source (1.7s)
+  ✓  2 [desktop] › tests/project-records-ui.spec.ts:186:1 › T6 real project sample shows five tasks and nineteen steps with delivery source (534ms)
+(node:84317) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  3 [mobile-dark] › tests/project-records-ui.spec.ts:72:1 › T6 record page connects two projects, filters, explains states and reads source (1.4s)
+  ✓  4 [mobile-dark] › tests/project-records-ui.spec.ts:186:1 › T6 real project sample shows five tasks and nineteen steps with delivery source (524ms)
+
+  4 passed (10.8s)

@@ -6,12 +6,17 @@ import { AppError, type TaskService } from "../../tasks/service.js";
 import { taskExchange } from "../task-communication.js";
 import { browserEvents } from "./events.js";
 import { browserSession } from "./session.js";
+import { projectRecordsRouter } from "../../records/transport.js";
+import type { ProjectDirectoryDialog } from "../../records/directory-picker.js";
+import type { ProjectRecords } from "../../records/service.js";
 
 /** 挂载网页会话、任务查询与操作，以及实时快照。 */
 export function browserApiRouter(
   service: TaskService,
   workspace: string,
   mode: "fake" | "codex",
+  records?: ProjectRecords,
+  chooseProjectDirectory?: ProjectDirectoryDialog,
 ) {
   const router = Router();
   const { store } = service;
@@ -27,6 +32,8 @@ export function browserApiRouter(
     next();
   });
   router.use("/api", session.requireSession);
+  if (records)
+    router.use(projectRecordsRouter(records, chooseProjectDirectory));
   router.get(
     "/api/tasks",
     /* 返回网页任务列表。 */ (_req, res) => res.json(store.list()),

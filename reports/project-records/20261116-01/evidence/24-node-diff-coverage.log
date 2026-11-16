@@ -1,0 +1,28 @@
+Node test lcov. Added-side git diff lines or all reported lines in new files. Denominator is reported DA lines and BRDA branches.
+src/server/storage/store.ts
+  lines 20/20; uncovered: 
+  branches 1/1; uncovered (line:block:arm): 
+src/server/transport/browser-api/router.ts
+  lines 4/4; uncovered: 
+  branches 1/1; uncovered (line:block:arm): 
+src/server/transport/http.ts
+  lines 8/8; uncovered: 
+  branches 1/1; uncovered (line:block:arm): 
+src/server/transport/mcp.ts
+  lines 4/4; uncovered: 
+  branches 0/0; uncovered (line:block:arm): 
+src/server/transport/web-assets.ts
+  lines 3/3; uncovered: 
+  branches 0/0; uncovered (line:block:arm): 
+src/server/records/importer.ts
+  lines 283/298; uncovered: 35, 36, 45, 46, 93, 100, 101, 126, 147, 165, 166, 194, 200, 201, 202
+  branches 107/129; uncovered (line:block:arm): 34:5:0, 44:8:0, 52:11:0, 58:14:0, 73:20:0, 90:36:0, 92:39:0, 94:40:0, 94:41:0, 99:44:0, 146:45:0, 151:48:0, 151:49:0, 155:50:0, 162:60:0, 164:62:0, 193:78:0, 199:82:0, 109:97:0, 125:102:0, 134:111:0, 142:115:0
+src/server/records/service.ts
+  lines 66/71; uncovered: 27, 35, 44, 45, 49
+  branches 24/28; uncovered (line:block:arm): 26:8:0, 34:15:0, 43:19:0, 48:21:0
+src/server/records/transport.ts
+  lines 67/70; uncovered: 35, 36, 37
+  branches 9/11; uncovered (line:block:arm): 34:4:0, 58:10:0
+src/shared/project-records.ts
+  lines 93/93; uncovered: 
+  branches 18/19; uncovered (line:block:arm): 76:12:0

@@ -1,4 +1,8 @@
 import { DatabaseSync } from "node:sqlite";
+import {
+  projectRecordSchema,
+  type ProjectRecord,
+} from "../../shared/project-records.js";
 import { mkdirSync, openSync, closeSync, chmodSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -151,6 +155,7 @@ export class Store {
     chmodSync(path, 0o600);
     this.db = new DatabaseSync(path);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;
+      CREATE TABLE IF NOT EXISTS project_records (id TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY, task_id TEXT REFERENCES tasks(id), data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS approvals (id TEXT PRIMARY KEY, run_id TEXT REFERENCES runs(id), data TEXT NOT NULL);
@@ -901,6 +906,21 @@ export class Store {
       // Migrates queued tasks from the earlier direct-execution MVP and reannounces offline work.
       for (const t of this.queuedTasks()) this.deliver(t.id);
     });
+  }
+  /** 项目记录独立存储，保持执行任务、事件和唤醒数据原样。 */
+  projectRecords(): ProjectRecord[] {
+    return this.db
+      .prepare("SELECT data FROM project_records ORDER BY id")
+      .all()
+      .map((row) => projectRecordSchema.parse(JSON.parse(String(row.data))));
+  }
+  saveProjectRecord(record: ProjectRecord) {
+    const value = projectRecordSchema.parse(record);
+    this.db
+      .prepare(
+        "INSERT INTO project_records VALUES (?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data",
+      )
+      .run(value.id, JSON.stringify(value));
   }
   /** 关闭 SQLite 数据库连接。 */
   close() {

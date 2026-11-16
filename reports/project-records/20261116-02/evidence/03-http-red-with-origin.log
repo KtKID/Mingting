@@ -1,0 +1,50 @@
+(node:18698) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✖ T1 selected child folder resolves real Git root and worktree root separately (59.152125ms)
+✖ T2 directory picker needs session and CSRF, handles cancellation and non-Git, and records no changes (40.232458ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 0
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 416.860083
+
+✖ failing tests:
+
+test at tests/project-directory-picker.test.ts:1:1850
+✖ T1 selected child folder resolves real Git root and worktree root separately (59.152125ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  404 !== 200
+  
+      at TestContext.<anonymous> (/Volumes/machub_app/proj/x-mingting/tests/project-directory-picker.test.ts:65:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:358:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 404,
+    expected: 200,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/project-directory-picker.test.ts:1:2724
+✖ T2 directory picker needs session and CSRF, handles cancellation and non-Git, and records no changes (40.232458ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  404 !== 200
+  
+      at TestContext.<anonymous> (/Volumes/machub_app/proj/x-mingting/tests/project-directory-picker.test.ts:116:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 404,
+    expected: 200,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

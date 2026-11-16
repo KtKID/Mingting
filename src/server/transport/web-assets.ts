@@ -24,5 +24,8 @@ export function webAssetsRouter() {
       dotfiles: "deny",
     }),
   );
+  router.get("/records", (_req, res) =>
+    res.sendFile(resolve("dist/web/index.html")),
+  );
   return router;
 }

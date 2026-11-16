@@ -1,0 +1,233 @@
+Browser tab: 1, Title: "明庭 · 任务台", URL: "http://127.0.0.1:60390/records?project=a4e09ef235912d47ae47e402".
+1 AXWebArea 明庭 · 任务台, URL: 127.0.0.1:60390/records?project=a4e09ef235912d47ae47e402
+	2 container root
+		3 container
+			4 link Description: 明 明庭 WORKSPACE, Value: 127.0.0.1:60390/
+			5 text 本机工作空间
+		6 container 工作空间页面
+			7 link Description: 任务台, Value: 127.0.0.1:60390/
+			8 link Description: 项目记录, Value: 127.0.0.1:60390/records
+		9 container
+			10 text PROJECTS / 项目记录
+			11 heading 看清每个项目的下一步。, Value: 1
+				12 text 看清每个项目的下一步。
+			13 text 按 Spec 查看任务进展，随时回到原始依据。
+			14 button 刷新记录
+			15 button 接入项目
+			16 tab group 项目
+				17 tab (selected, settable, boolean) 明庭 6 Spec, Value: 1
+明庭
+6
+Spec
+			18 container 项目摘要
+				19 text 明庭
+				20 text 6  个 Spec ·  17  个 Task
+				21 container
+					22 text 11 / 17
+				23 text 任务已完成 最近同步
+				24 text 2026/11/16 22:13:40
+			25 text ⌕
+			26 search text field (settable) 搜索 Spec 或 Task
+			27 checkbox 待关注 6, Value: 0
+			28 text 状态来自项目文档
+			29 container Spec 任务状态看板
+				30 text SPEC / 工作范围
+				31 text 待开始
+				32 text 0
+				33 text 进行中
+				34 text 0
+				35 text 待验收
+				36 text 2
+				37 text 已完成
+				38 text 11
+				39 text 待核对
+				40 text 4
+				59 container Codex 任务设置、过程审计与用量对账
+					60 container
+						61 text SPEC
+						62 heading Codex 任务设置、过程审计与用量对账, Value: 2
+							63 text Codex 任务设置、过程审计与用量对账
+						64 text 本次目标与范围：补齐明庭管理的 Codex 任务。在明庭统一设置模型和思考档位，查看生效回执、流式正文与公开思考、工具与审批、任务 Usage 和上下文占用。设置和查询沿用明庭现有任务入口。本次范围限定 Codex 执行任务。其他执行器、桌面聊天唤醒和 Plan Mode 表单属于独立交付范围。 5 / 5  Task 已完成
+					65 container 待开始任务
+					66 container 进行中任务
+					67 container 待验收任务
+					68 container 已完成任务
+						69 button 查看开发任务：真实任务流式验收与用量对账
+							70 text TASK
+							71 text ↗
+							72 heading 真实任务流式验收与用量对账, Value: 3
+								73 text 真实任务流式验收与用量对账
+							74 text 3
+							75 text /
+							76 text 3
+							77 text  步骤已验证
+						78 button 查看开发任务：模型、思考档位与生效回执
+							79 text TASK
+							80 text ↗
+							81 heading 模型、思考档位与生效回执, Value: 3
+								82 text 模型、思考档位与生效回执
+							83 text 5
+							84 text /
+							85 text 5
+							86 text  步骤已验证
+						87 button 查看开发任务：运行归属与存储底座
+							88 text TASK
+							89 text ↗
+							90 heading 运行归属与存储底座, Value: 3
+								91 text 运行归属与存储底座
+							92 text 2
+							93 text /
+							94 text 2
+							95 text  步骤已验证
+						96 button 查看开发任务：Usage、上下文与任务汇总
+							97 text TASK
+							98 text ↗
+							99 heading Usage、上下文与任务汇总, Value: 3
+								100 text Usage、上下文与任务汇总
+							101 text 5
+							102 text /
+							103 text 5
+							104 text  步骤已验证
+						105 button 查看开发任务：实时过程与工具审批审计
+							106 text TASK
+							107 text ↗
+							108 heading 实时过程与工具审批审计, Value: 3
+								109 text 实时过程与工具审批审计
+							110 text 4
+							111 text /
+							112 text 4
+							113 text  步骤已验证
+					114 container 待核对任务
+				115 container DSH 发布明庭任务后唤醒原会话
+					116 container
+						117 text SPEC
+						118 heading DSH 发布明庭任务后唤醒原会话, Value: 2
+							119 text DSH 发布明庭任务后唤醒原会话
+						120 text 用户从 DSH Web 的任一会话发布明庭任务。明庭记住发起任务的会话和轮次，任务完成后让同一个会话自动开始新一轮。 0 / 1  Task 已完成
+					121 container 待开始任务
+					122 container 进行中任务
+					123 container 待验收任务
+						124 button 查看开发任务：开发清单
+							125 text TASK
+							126 text ↗
+							127 heading 开发清单, Value: 3
+								128 text 开发清单
+							129 text 3
+							130 text /
+							131 text 3
+							132 text  步骤已验证
+					133 container 已完成任务
+					134 container 待核对任务
+				41 container 项目记录：集中查看各项目的开发进度
+					42 container
+						43 text SPEC
+						44 heading 项目记录：集中查看各项目的开发进度, Value: 2
+							45 text 项目记录：集中查看各项目的开发进度
+						46 text 项目记录从已接入项目的 x-dev-pipeline 文档读取 Spec、Task、内部步骤和交付依据，供 Web 与后续其他展示客户端共用。 0 / 1  Task 已完成
+					47 container 待开始任务
+					48 container 进行中任务
+					49 container 待验收任务
+						50 button 查看开发任务：项目记录与 Spec / Task 状态看板
+							51 text TASK
+							52 text ↗
+							53 heading 项目记录与 Spec / Task 状态看板, Value: 3
+								54 text 项目记录与 Spec / Task 状态看板
+							55 text 待验收
+					56 container 已完成任务
+					57 container 待核对任务
+				135 container 明庭任务中台：发布登记与手动派发
+					136 container
+						137 text SPEC
+						138 heading 明庭任务中台：发布登记与手动派发, Value: 2
+							139 text 明庭任务中台：发布登记与手动派发
+						140 text 本次目标与范围　把「是否派发」与「是否选择执行者」绑定：`new` 不填 `targetHarness` 只登记（新状态 `awaiting_dispatch`），填写则按原链路立即投递。新增手动派发入口（网页按钮与 MCP 命令），派发时必须能解析出执行者。 4 / 4  Task 已完成
+					141 container 待开始任务
+					142 container 进行中任务
+					143 container 待验收任务
+					144 container 已完成任务
+						145 button 查看开发任务：手动派发待派发任务
+							146 text TASK
+							147 text ↗
+							148 heading 手动派发待派发任务, Value: 3
+								149 text 手动派发待派发任务
+							150 text 已完成
+						151 button 查看开发任务：发布登记为待派发
+							152 text TASK
+							153 text ↗
+							154 heading 发布登记为待派发, Value: 3
+								155 text 发布登记为待派发
+							156 text 已完成
+						157 button 查看开发任务：回归用例适配与存量修复
+							158 text TASK
+							159 text ↗
+							160 heading 回归用例适配与存量修复, Value: 3
+								161 text 回归用例适配与存量修复
+							162 text 已完成
+						163 button 查看开发任务：网页待派发展示与派发操作
+							164 text TASK
+							165 text ↗
+							166 heading 网页待派发展示与派发操作, Value: 3
+								167 text 网页待派发展示与派发操作
+							168 text 已完成
+					169 container 待核对任务
+				170 container 同一任务的多轮沟通与通信计数
+					171 container
+						172 text SPEC
+						173 heading 同一任务的多轮沟通与通信计数, Value: 2
+							174 text 同一任务的多轮沟通与通信计数
+						175 text 本次目标与范围　支持选择新建（`new`）或追加（`append`）。同一任务的后续内容追加到原单，任务轮次由明庭递增。发布者、明庭、执行者之间属于该任务的每条通信均计数，并能查看每轮来源。 0 / 0  Task 已完成
+					176 container 待开始任务
+					177 container 进行中任务
+					178 container 待验收任务
+					179 container 已完成任务
+					180 container 待核对任务
+				181 container 统一发布明庭任务和订阅结果
+					182 container
+						183 text SPEC
+						184 heading 统一发布明庭任务和订阅结果, Value: 2
+							185 text 统一发布明庭任务和订阅结果
+						186 text 本次目标与范围　所有发布方统一调用 MCP。网页表单使用同一个 MCP 工具，网页发单时没有聊天唤醒目标。任务结果订阅与审批方式独立。 2 / 6  Task 已完成
+					187 container 待开始任务
+					188 container 进行中任务
+					189 container 待验收任务
+					190 container 已完成任务
+						191 button 查看开发任务：明庭 MCP 发单工具改名
+							192 text TASK
+							193 text ↗
+							194 heading 明庭 MCP 发单工具改名, Value: 3
+								195 text 明庭 MCP 发单工具改名
+							196 text 已完成
+						197 button 查看开发任务：配置任务唤醒结果长度
+							198 text TASK
+							199 text ↗
+							200 heading 配置任务唤醒结果长度, Value: 3
+								201 text 配置任务唤醒结果长度
+							202 text 已完成
+					203 container 待核对任务
+						204 button 查看开发任务：通用宿主完成唤醒
+							205 text TASK
+							206 text ↗
+							207 heading 通用宿主完成唤醒, Value: 3
+								208 text 通用宿主完成唤醒
+							209 text 待核对
+						210 button 查看开发任务：KMH 统一发单、结果订阅和原会话唤醒
+							211 text TASK
+							212 text ↗
+							213 heading KMH 统一发单、结果订阅和原会话唤醒, Value: 3
+								214 text KMH 统一发单、结果订阅和原会话唤醒
+							215 text 待核对
+						216 button 查看开发任务：明庭详情显示 KMH 唤醒状态
+							217 text TASK
+							218 text ↗
+							219 heading 明庭详情显示 KMH 唤醒状态, Value: 3
+								220 text 明庭详情显示 KMH 唤醒状态
+							221 text 待核对
+						222 button 查看开发任务：通过唯一 MCP 入口发布和续接任务
+							223 text TASK
+							224 text ↗
+							225 heading 通过唯一 MCP 入口发布和续接任务, Value: 3
+								226 text 通过唯一 MCP 入口发布和续接任务
+							227 text 待核对
+			58 text 每个 Task 保留自己的状态与依据。文档更新后，记录会自动同步。 左右滚动查看全部阶段。
+
+The focused UI element is 26 search text field (settable) 搜索 Spec 或 Task

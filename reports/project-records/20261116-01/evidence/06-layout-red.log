@@ -1,0 +1,75 @@
+[WebServer] (node:76663) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:76663) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+[WebServer] (node:76667) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 2 tests using 1 worker
+
+(node:76786) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 [desktop] › tests/project-records-ui.spec.ts:72:1 › T6 record page connects two projects, filters, explains states and reads source (700ms)
+(node:76936) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  2 [mobile-dark] › tests/project-records-ui.spec.ts:72:1 › T6 record page connects two projects, filters, explains states and reads source (331ms)
+
+
+  1) [desktop] › tests/project-records-ui.spec.ts:72:1 › T6 record page connects two projects, filters, explains states and reads source 
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: 140
+    Received: 72
+
+      82 |   const tasksPosition = await tasksLink.boundingBox();
+      83 |   const recordsPosition = await recordsLink.boundingBox();
+    > 84 |   expect(tasksPosition?.x).toBe(recordsPosition?.x);
+         |                            ^
+      85 |   expect(tasksPosition?.y).toBeLessThan(recordsPosition?.y ?? 0);
+      86 |   await recordsLink.click();
+      87 |   await expect(recordsLink).toHaveAttribute("aria-current", "page");
+        at /Volumes/machub_app/proj/x-mingting/tests/project-records-ui.spec.ts:84:28
+
+    Error Context: test-results/project-records-ui-T6-reco-31448-ins-states-and-reads-source-desktop/error-context.md
+
+    Error Context: test-results/project-records-ui-T6-reco-31448-ins-states-and-reads-source-desktop/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/project-records-ui-T6-reco-31448-ins-states-and-reads-source-desktop/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/project-records-ui-T6-reco-31448-ins-states-and-reads-source-desktop/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [mobile-dark] › tests/project-records-ui.spec.ts:72:1 › T6 record page connects two projects, filters, explains states and reads source 
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: 87.5
+    Received: 19.5
+
+      82 |   const tasksPosition = await tasksLink.boundingBox();
+      83 |   const recordsPosition = await recordsLink.boundingBox();
+    > 84 |   expect(tasksPosition?.x).toBe(recordsPosition?.x);
+         |                            ^
+      85 |   expect(tasksPosition?.y).toBeLessThan(recordsPosition?.y ?? 0);
+      86 |   await recordsLink.click();
+      87 |   await expect(recordsLink).toHaveAttribute("aria-current", "page");
+        at /Volumes/machub_app/proj/x-mingting/tests/project-records-ui.spec.ts:84:28
+
+    Error Context: test-results/project-records-ui-T6-reco-31448-ins-states-and-reads-source-mobile-dark/error-context.md
+
+    Error Context: test-results/project-records-ui-T6-reco-31448-ins-states-and-reads-source-mobile-dark/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/project-records-ui-T6-reco-31448-ins-states-and-reads-source-mobile-dark/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/project-records-ui-T6-reco-31448-ins-states-and-reads-source-mobile-dark/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2 failed
+    [desktop] › tests/project-records-ui.spec.ts:72:1 › T6 record page connects two projects, filters, explains states and reads source 
+    [mobile-dark] › tests/project-records-ui.spec.ts:72:1 › T6 record page connects two projects, filters, explains states and reads source 

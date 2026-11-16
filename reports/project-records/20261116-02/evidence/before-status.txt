@@ -1,0 +1,18 @@
+ M playwright.config.ts
+ M src/server/storage/store.ts
+ M src/server/transport/browser-api/router.ts
+ M src/server/transport/http.ts
+ M src/server/transport/mcp.ts
+ M src/server/transport/web-assets.ts
+ M src/web/main.tsx
+ M tests/platform.test.ts
+?? .DS_Store
+?? .video_agent/
+?? docs/spec/project-records/
+?? src/server/records/
+?? src/shared/project-records.ts
+?? src/web/page-nav.tsx
+?? src/web/project-records.css
+?? src/web/project-records.tsx
+?? tests/project-records-ui.spec.ts
+?? tests/project-records.test.ts

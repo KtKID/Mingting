@@ -1,0 +1,15 @@
+src/server/records/directory-picker.ts scope: [(1, 1000)]
+DA 61/93 uncovered: 34; 35; 36; 37; 38; 39; 40; 41; 42; 43; 44; 45; 46; 47; 48; 49; 50; 51; 52; 53; 54; 71; 72; 73; 86; 87; 88; 89; 90; 91; 92; 93
+BRDA 7/10 uncovered: 70,4,0; 78,7,0; 85,8,0
+src/server/records/transport.ts scope: [(5, 5), (9, 15), (64, 91)]
+DA 36/36 uncovered: 
+BRDA 12/13 uncovered: 84,17,0
+src/server/transport/http.ts scope: [(14, 14), (25, 25), (52, 60)]
+DA 11/11 uncovered: 
+BRDA 2/2 uncovered: 
+src/server/transport/browser-api/router.ts scope: [(11, 11), (19, 19), (35, 36)]
+DA 2/4 uncovered: 35; 36
+BRDA 0/0 uncovered: 
+src/shared/project-records.ts scope: [(64, 71)]
+DA 8/8 uncovered: 
+BRDA 0/0 uncovered: 

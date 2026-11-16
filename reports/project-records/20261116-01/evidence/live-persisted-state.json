@@ -1,0 +1,167 @@
+{
+  "observedAt": "2026-11-16T14:15:05.285Z",
+  "counts": {
+    "tasks": 45,
+    "runs": 47,
+    "deliveries": 47,
+    "task_wakeup_events": 17,
+    "project_records": 1
+  },
+  "projects": [
+    {
+      "id": "a4e09ef235912d47ae47e402",
+      "name": "明庭",
+      "root": "/Volumes/machub_app/proj/x-mingting",
+      "sourceVersion": "5b182aceb575f3be0921c470a304633f09f82cdef9298f33fc5808cec65a9a60",
+      "observedAt": "2026-11-16T14:15:00.558Z",
+      "syncError": null,
+      "specCount": 6,
+      "taskCount": 17,
+      "specs": [
+        {
+          "id": "8c6d73ace1327bb88cea3f08",
+          "title": "Codex 任务设置、过程审计与用量对账",
+          "phase": "completed",
+          "tasks": [
+            {
+              "id": "3381724c52146f4ecf86b7d0",
+              "title": "真实任务流式验收与用量对账",
+              "phase": "completed",
+              "stepCount": 3
+            },
+            {
+              "id": "e226df943a2ab09a52ff3930",
+              "title": "模型、思考档位与生效回执",
+              "phase": "completed",
+              "stepCount": 5
+            },
+            {
+              "id": "144ddf4a65c87d5ad3260c73",
+              "title": "运行归属与存储底座",
+              "phase": "completed",
+              "stepCount": 2
+            },
+            {
+              "id": "518d11c40b49a1b6dd1c10e1",
+              "title": "Usage、上下文与任务汇总",
+              "phase": "completed",
+              "stepCount": 5
+            },
+            {
+              "id": "1cb152beccdee19138602f21",
+              "title": "实时过程与工具审批审计",
+              "phase": "completed",
+              "stepCount": 4
+            }
+          ]
+        },
+        {
+          "id": "8dbbcda79115e3c1b2f49efb",
+          "title": "DSH 发布明庭任务后唤醒原会话",
+          "phase": "awaiting_review",
+          "tasks": [
+            {
+              "id": "646de55fe8912896d0a3b7e8",
+              "title": "开发清单",
+              "phase": "awaiting_review",
+              "stepCount": 3
+            }
+          ]
+        },
+        {
+          "id": "f48f70371650ff258d05e66f",
+          "title": "项目记录：集中查看各项目的开发进度",
+          "phase": "awaiting_review",
+          "tasks": [
+            {
+              "id": "add63c7279c1be1aab17790a",
+              "title": "项目记录与 Spec / Task 状态看板",
+              "phase": "awaiting_review",
+              "stepCount": 0
+            }
+          ]
+        },
+        {
+          "id": "eab6827913f7a23701fd8b85",
+          "title": "明庭任务中台：发布登记与手动派发",
+          "phase": "completed",
+          "tasks": [
+            {
+              "id": "36c668603f68d9828531c61d",
+              "title": "手动派发待派发任务",
+              "phase": "completed",
+              "stepCount": 0
+            },
+            {
+              "id": "91337769ade90bcf44a376c5",
+              "title": "发布登记为待派发",
+              "phase": "completed",
+              "stepCount": 0
+            },
+            {
+              "id": "dabba0628187fd8082227c9a",
+              "title": "回归用例适配与存量修复",
+              "phase": "completed",
+              "stepCount": 0
+            },
+            {
+              "id": "168197111a9c72b0d67093d0",
+              "title": "网页待派发展示与派发操作",
+              "phase": "completed",
+              "stepCount": 0
+            }
+          ]
+        },
+        {
+          "id": "bf412044bc899dce3819e132",
+          "title": "同一任务的多轮沟通与通信计数",
+          "phase": "unknown",
+          "tasks": []
+        },
+        {
+          "id": "ad80d610a5872b13fbdf2da2",
+          "title": "统一发布明庭任务和订阅结果",
+          "phase": "unknown",
+          "tasks": [
+            {
+              "id": "018363ed2ee6ca056068b7d5",
+              "title": "通用宿主完成唤醒",
+              "phase": "unknown",
+              "stepCount": 0
+            },
+            {
+              "id": "690f4635bec388b8f4288b1d",
+              "title": "KMH 统一发单、结果订阅和原会话唤醒",
+              "phase": "unknown",
+              "stepCount": 0
+            },
+            {
+              "id": "d8667b124607d91db1a53666",
+              "title": "明庭详情显示 KMH 唤醒状态",
+              "phase": "unknown",
+              "stepCount": 0
+            },
+            {
+              "id": "f7369cfada80bd2e348a2d73",
+              "title": "明庭 MCP 发单工具改名",
+              "phase": "completed",
+              "stepCount": 0
+            },
+            {
+              "id": "fc4481a4946f6190e473cd05",
+              "title": "通过唯一 MCP 入口发布和续接任务",
+              "phase": "unknown",
+              "stepCount": 0
+            },
+            {
+              "id": "d051e527a8467d81dcd9665a",
+              "title": "配置任务唤醒结果长度",
+              "phase": "completed",
+              "stepCount": 0
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
