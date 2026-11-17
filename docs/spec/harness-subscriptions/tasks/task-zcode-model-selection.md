@@ -1,6 +1,11 @@
 # ZCode 模型选择与问候回传
 
-> 归属：Harness 连接器 H3；功能：[Harness 订阅](../HARNESS-SUBSCRIPTIONS.md#h3-执行)
+> 所属 spec：[执行器订阅（Harness 订阅）](../spec.md)
+> 状态：已完成
+> 执行者：未知
+> 创建：2026-11-01
+
+> 归属：Harness 连接器 H3；功能：[Harness 订阅](../../../HARNESS-SUBSCRIPTIONS.md#h3-执行)
 > spec：无，沿用模块功能文档；设计：本文②；创建：2026-11-01；状态：已完成
 
 ## ① 需求与变更

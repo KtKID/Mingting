@@ -1,6 +1,11 @@
 # 真实 ACP 运行离线回放
 
-[功能归属](../HARNESS-SUBSCRIPTIONS.md#离线回归)
+> 所属 spec：[执行器订阅（Harness 订阅）](../spec.md)
+> 状态：未知
+> 执行者：未知
+> 创建：2026-11-06
+
+[功能归属](../../../HARNESS-SUBSCRIPTIONS.md#离线回归)
 
 ## ① 需求与变更
 
@@ -20,4 +25,4 @@
 
 ## ⑤ 验证结果
 
-五条离线用例全部通过。默认后端 114 项通过，计量篡改按预期失败。交付对账和技术复核通过。 [统一测试报告](../../reports/acp-offline-replay/20261106/test-report.md)
+五条离线用例全部通过。默认后端 114 项通过，计量篡改按预期失败。交付对账和技术复核通过。 [统一测试报告](../../../../reports/acp-offline-replay/20261106/test-report.md)

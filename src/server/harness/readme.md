@@ -8,7 +8,7 @@ Harness 指接手任务的本地执行器。这个目录根据连接器身份选
 
 ## 设计理念
 
-四种执行器通过共同的 ACP 执行流程接入。ACP 是连接器和执行器之间交换消息的协议。执行器各自保留进程参数、账号隔离规则和用量口径。账号副本和运行状态使用项目内目录，便于把明庭执行与日常工具环境分开。 [执行与部署](../../../docs/HARNESS-SUBSCRIPTIONS.md#h3-执行) · [多执行器接入记录](../../../docs/task/task-multi-harness-acp.md)
+四种执行器通过共同的 ACP 执行流程接入。ACP 是连接器和执行器之间交换消息的协议。执行器各自保留进程参数、账号隔离规则和用量口径。账号副本和运行状态使用项目内目录，便于把明庭执行与日常工具环境分开。 [执行与部署](../../../docs/HARNESS-SUBSCRIPTIONS.md#h3-执行) · [多执行器接入记录](../../../docs/spec/harness-subscriptions/tasks/task-multi-harness-acp.md)
 
 ## 使用方式
 
@@ -29,4 +29,4 @@ Harness 指接手任务的本地执行器。这个目录根据连接器身份选
 | Spec 或功能记录                                                              | 与模块的关系                                                                                                                                                                |
 | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [Codex 设置和计量](../../../docs/spec/codex-task-settings-and-audit/spec.md) | 连接器的适配器在此选定，随后按共同流程回读设置和采集用量。[技术设计](../../../docs/spec/codex-task-settings-and-audit/tech-design.md)                                       |
-| [Harness 订阅与执行 H1–H5](../../../docs/HARNESS-SUBSCRIPTIONS.md)           | Grok、ZCode、DeepSeek 和 Codex 运行选择的功能记录。[多执行器接入](../../../docs/task/task-multi-harness-acp.md) · [离线回放](../../../docs/task/task-acp-offline-replay.md) |
+| [Harness 订阅与执行 H1–H5](../../../docs/HARNESS-SUBSCRIPTIONS.md)           | Grok、ZCode、DeepSeek 和 Codex 运行选择的功能记录。[多执行器接入](../../../docs/spec/harness-subscriptions/tasks/task-multi-harness-acp.md) · [离线回放](../../../docs/spec/harness-subscriptions/tasks/task-acp-offline-replay.md) |

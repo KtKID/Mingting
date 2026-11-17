@@ -1,9 +1,14 @@
-> 2026-11-01 后续状态：ZCode 的模型选择与问候阻塞已在 [后续 qdev](task-zcode-model-selection.md) 修复，完整真实链路 succeeded。本文保留首次实现与当时验收的历史记录；当前功能以 [Harness 订阅](../HARNESS-SUBSCRIPTIONS.md) 为准。
+> 2026-11-01 后续状态：ZCode 的模型选择与问候阻塞已在 [后续 qdev](task-zcode-model-selection.md) 修复，完整真实链路 succeeded。本文保留首次实现与当时验收的历史记录；当前功能以 [Harness 订阅](../../../HARNESS-SUBSCRIPTIONS.md) 为准。
 
 # Harness 身份订阅与定向问候验证
 
+> 所属 spec：[执行器订阅（Harness 订阅）](../spec.md)
+> 状态：已完成（原文首行：ZCode 部分由 task-zcode-model-selection 补完）
+> 执行者：未知
+> 创建：2026-11-01
+
 > 归属：MCP 发布 / HTTP SSE 订阅连接器
-> 功能文档：[Harness 订阅](../HARNESS-SUBSCRIPTIONS.md)
+> 功能文档：[Harness 订阅](../../../HARNESS-SUBSCRIPTIONS.md)
 > spec：无，沿用 README 中的传输闭环
 > 范围：H1–H4；设计：本文②；创建：2026-11-01；状态：部分完成；ZCode 模型执行阻塞
 

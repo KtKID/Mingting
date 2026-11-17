@@ -12,13 +12,13 @@
 | 桌面与手机网页 | 自动填写发布表单、选择模型档位、看审批弹窗、点击同意或拒绝、检查结果并模拟断线 | 本地假 ACP 进程按场景回报，手机用例在浏览器里模拟手机尺寸和触控 |
 | 审批专项网页 | 用十条场景检查发起方与用户的决定、十秒回退、刷新与取消，并逐步保存证据 | 仓库自带合成审批夹具。持有本地原始录制时可显式切换 |
 
-ACP 是明庭与执行器交换会话、工具请求和回报的协议。离线回放能检查明庭怎样处理这些消息。上游登录、原生执行器的实时行为和实际模型用量，由单独的真实验收确认。 [离线回放任务](../docs/task/task-acp-offline-replay.md) · [真实验收要求](../docs/spec/codex-task-settings-and-audit/tech-design.md#live)
+ACP 是明庭与执行器交换会话、工具请求和回报的协议。离线回放能检查明庭怎样处理这些消息。上游登录、原生执行器的实时行为和实际模型用量，由单独的真实验收确认。 [离线回放任务](../docs/spec/harness-subscriptions/tasks/task-acp-offline-replay.md) · [真实验收要求](../docs/spec/codex-task-settings-and-audit/tech-design.md#live)
 
 ## 设计理念
 
-**让默认入口自己选测试。** 后端、构建、通用网页和审批专项按顺序执行。两套浏览器测试共用测试端口，所以串行启动，各自使用独立数据库和工作区。通用网页阶段失败后，审批专项仍可给出独立结果，整个批次按失败处理。 [自动回归设计](../docs/task/task-automatic-regression.md)
+**让默认入口自己选测试。** 后端、构建、通用网页和审批专项按顺序执行。两套浏览器测试共用测试端口，所以串行启动，各自使用独立数据库和工作区。通用网页阶段失败后，审批专项仍可给出独立结果，整个批次按失败处理。 [自动回归设计](../docs/spec/approvals/tasks/task-automatic-regression.md)
 
-**让明庭走真实路径，让输入可以重放。** 测试进程用实际 ACP 协议发消息，明庭照常校验、裁决和保存。固定场景方便模拟错会话、重复报告和中途退出。来自真实验收的记录用来核对各家的原始用量字段和审批选项，其中缺少的原始协议帧按保存的正文和审计记录重建。 [多执行器设计](../docs/task/task-multi-harness-acp.md) · [离线夹具来源](../docs/task/task-acp-offline-replay.md)
+**让明庭走真实路径，让输入可以重放。** 测试进程用实际 ACP 协议发消息，明庭照常校验、裁决和保存。固定场景方便模拟错会话、重复报告和中途退出。来自真实验收的记录用来核对各家的原始用量字段和审批选项，其中缺少的原始协议帧按保存的正文和审计记录重建。 [多执行器设计](../docs/spec/harness-subscriptions/tasks/task-multi-harness-acp.md) · [离线夹具来源](../docs/spec/harness-subscriptions/tasks/task-acp-offline-replay.md)
 
 **让失败可以查回去。** 每次默认回归生成独立批次，保存输入、日志、网页结果、截图和审批步骤。网页阶段的结果单独保存，旧批次的阶段清单继续可读。 [批次留存约定](../docs/APPROVALS.md#a5-默认自动回归与批次留存)
 
@@ -115,9 +115,9 @@ npm test
 
 | 功能文档 | 与本模块的关系 |
 | --- | --- |
-| [审批 A1–A5](../docs/APPROVALS.md) | 定义用户与订阅者的裁决、十秒窗口、十条回放及批次保留。对应审批、归档和浏览器专项。 [默认回归任务](../docs/task/task-automatic-regression.md) |
-| [执行器订阅与运行审计](../docs/HARNESS-SUBSCRIPTIONS.md) | 定义定向领取、实时过程、各家用量和离线夹具。对应路由、流、适配器与五条录制回归。 [多执行器任务](../docs/task/task-multi-harness-acp.md) · [离线回放任务](../docs/task/task-acp-offline-replay.md) |
-| [网页重连](../docs/task/task-web-reconnect.md) | 页面自动恢复连接并保留已有过程，对应 `ui.spec.ts` 的断线与短时初始化失败用例。 |
-| [当前聊天唤醒 W1–W3](../docs/CHAT-WAKEUPS.md) | 定义审批与任务完成怎样投递到原聊天，以及失败和回放的边界。对应 `task-wakeups.test.ts` 和假聊天宿主。 [唤醒任务](../docs/task/task-chat-wakeups.md) |
+| [审批 A1–A5](../docs/APPROVALS.md) | 定义用户与订阅者的裁决、十秒窗口、十条回放及批次保留。对应审批、归档和浏览器专项。 [默认回归任务](../docs/spec/approvals/tasks/task-automatic-regression.md) |
+| [执行器订阅与运行审计](../docs/HARNESS-SUBSCRIPTIONS.md) | 定义定向领取、实时过程、各家用量和离线夹具。对应路由、流、适配器与五条录制回归。 [多执行器任务](../docs/spec/harness-subscriptions/tasks/task-multi-harness-acp.md) · [离线回放任务](../docs/spec/harness-subscriptions/tasks/task-acp-offline-replay.md) |
+| [网页重连](../docs/spec/harness-subscriptions/tasks/task-web-reconnect.md) | 页面自动恢复连接并保留已有过程，对应 `ui.spec.ts` 的断线与短时初始化失败用例。 |
+| [当前聊天唤醒 W1–W3](../docs/CHAT-WAKEUPS.md) | 定义审批与任务完成怎样投递到原聊天，以及失败和回放的边界。对应 `task-wakeups.test.ts` 和假聊天宿主。 [唤醒任务](../docs/spec/chat-wakeups/tasks/task-chat-wakeups.md) |
 
 在 `docs/spec/` 中查到 Codex 设置、审计和计量的正式规格。默认回归编排、离线夹具和专项网页用例的功能来源目前由上表的模块说明与任务记录承载。

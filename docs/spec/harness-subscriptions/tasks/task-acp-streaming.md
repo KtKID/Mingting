@@ -1,6 +1,11 @@
 # 各 Harness ACP 与网页实时执行过程
 
-> 功能：[Harness 订阅](../HARNESS-SUBSCRIPTIONS.md)，H3执行、H5实时过程（新增）
+> 所属 spec：[执行器订阅（Harness 订阅）](../spec.md)
+> 状态：已完成
+> 执行者：未知
+> 创建：2026-11-01
+
+> 功能：[Harness 订阅](../../../HARNESS-SUBSCRIPTIONS.md)，H3执行、H5实时过程（新增）
 > spec：无，沿用模块说明；设计：本文②；创建：2026-11-01；状态：已完成
 
 ## ① 需求与变更

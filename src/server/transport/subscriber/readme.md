@@ -8,7 +8,7 @@
 
 ## 设计理念
 
-结果订阅和审批权限分开。只交给网页用户审批的任务也能订阅执行结果。审批意见通过 HTTP 或 MCP 提交时，使用同一个处理入口，沿用同一套身份、选项和用户优先规则。 [发布与订阅权限](../../../../docs/spec/unified-task-publishing/tech-design.md#publish) · [审批任务记录](../../../../docs/task/task-approvals.md)
+结果订阅和审批权限分开。只交给网页用户审批的任务也能订阅执行结果。审批意见通过 HTTP 或 MCP 提交时，使用同一个处理入口，沿用同一套身份、选项和用户优先规则。 [发布与订阅权限](../../../../docs/spec/unified-task-publishing/tech-design.md#publish) · [审批任务记录](../../../../docs/spec/approvals/tasks/task-approvals.md)
 
 结果从已保存的运行记录读取。每次运行有固定的完成事件编号，所以任务先结束、发起方后连接时也能取回结果。每条连接会跳过本连接内已发送的完成事件。重连会重新读取已结束的运行，发起方用 `eventId` 跳过已经处理过的结果。 [结果补收设计](../../../../docs/spec/unified-task-publishing/tech-design.md#results)
 
@@ -57,7 +57,7 @@ HTTP 订阅供可信本机客户端使用，带浏览器来源标记的请求会
 | [统一发单 feat01](../../../../docs/spec/unified-task-publishing/spec.md#feat01-用统一规则发布任务并取得回执)                      | 上游依赖。发单回执提供任务专属订阅凭据，本模块按订阅用途校验。 [发布设计](../../../../docs/spec/unified-task-publishing/tech-design.md#publish)                                                                                             |
 | [结果订阅 feat02](../../../../docs/spec/unified-task-publishing/spec.md#feat02-订阅任务结果)                                      | `view=result` 推送当前状态和实际运行结果，支持晚订阅和重连补收。 [结果设计](../../../../docs/spec/unified-task-publishing/tech-design.md#results) · [交付记录](../../../../docs/spec/unified-task-publishing/tasks/task-kmh-mcp-publish.md) |
 | [同单多轮与通信计数 feat02](../../../../docs/spec/task-turns-and-seq/spec.md#feat02-查看逐条通信计数与每轮来源)                   | 订阅请求、发出的任务状态和结果、可归属的审批请求及回应纳入同一任务的通信流水。 [计数规则](../../../../docs/spec/task-turns-and-seq/tech-design.md#sequence) · [多轮接口测试](../../../../tests/task-turns.test.ts#L53)                      |
-| [审批 A1](../../../../docs/APPROVALS.md#a1-任务发起方与审批对象) · [审批 A3](../../../../docs/APPROVALS.md#a3-用户优先与十秒窗口) | 原始功能说明。发起方凭任务令牌接收审批快照和提交意见，任务服务执行用户优先规则。 [设计与实现记录](../../../../docs/task/task-approvals.md)                                                                                                  |
+| [审批 A1](../../../../docs/APPROVALS.md#a1-任务发起方与审批对象) · [审批 A3](../../../../docs/APPROVALS.md#a3-用户优先与十秒窗口) | 原始功能说明。发起方凭任务令牌接收审批快照和提交意见，任务服务执行用户优先规则。 [设计与实现记录](../../../../docs/spec/approvals/tasks/task-approvals.md)                                                                                                  |
 
 ## 待实现
 

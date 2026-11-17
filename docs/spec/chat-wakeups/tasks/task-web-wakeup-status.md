@@ -1,7 +1,12 @@
 # 在任务详情查看 MCP 唤醒
 
+> 所属 spec：[当前聊天的事件唤醒](../spec.md)
+> 状态：已完成（原文：隔离验证）
+> 执行者：未知
+> 创建：2026-11-06
+
 > 归属模块：当前聊天的事件唤醒
-> 功能文档：[W4 在任务详情查看 MCP 唤醒](../CHAT-WAKEUPS.md#w4-在任务详情查看-mcp-唤醒)
+> 功能文档：[W4 在任务详情查看 MCP 唤醒](../../../CHAT-WAKEUPS.md#w4-在任务详情查看-mcp-唤醒)
 > spec: 功能源自模块说明 W4
 > tech-design: 本文件②
 > 创建：2026-11-06
@@ -9,7 +14,7 @@
 
 ## ① 需求与变更
 
-用户本轮授权在截图中的任务详情基本信息加「唤醒目标」和「投递结果」，并解释 `originTurnId`。承接此前界定的 MCP 任务范围。旧版 [功能文档与代码快照](../../reports/task-web-wakeup-status/20261106/evidence/baseline/) 保存了任务开始前工作区内容与差异，基于 `a5540cf`。新增 W4，沿用 W1–W3 的绑定、投递和回合确认定义。[变更索引](../CHAT-WAKEUPS.md#changelog)
+用户本轮授权在截图中的任务详情基本信息加「唤醒目标」和「投递结果」，并解释 `originTurnId`。承接此前界定的 MCP 任务范围。旧版 [功能文档与代码快照](../../../../reports/task-web-wakeup-status/20261106/evidence/baseline) 保存了任务开始前工作区内容与差异，基于 `a5540cf`。新增 W4，沿用 W1–W3 的绑定、投递和回合确认定义。[变更索引](../../../CHAT-WAKEUPS.md#changelog)
 
 ## ② 精简技术设计
 
@@ -35,6 +40,6 @@ R1、R2、R4、R5、R7 适用，由共享 Zod 契约和真实 SSE 验证数据�
 
 ## ⑤ 验证结果
 
-[统一测试报告](../../reports/task-web-wakeup-status/20261106/test-report.md) 记录 43 项后端测试、浏览器检查和改动覆盖。W4 与 T1–T3 已对账，D1 和适用技术规范通过。文档已同步。
+[统一测试报告](../../../../reports/task-web-wakeup-status/20261106/test-report.md) 记录 43 项后端测试、浏览器检查和改动覆盖。W4 与 T1–T3 已对账，D1 和适用技术规范通过。文档已同步。
 
-[有绑定截图](../../reports/task-web-wakeup-status/20261106/evidence/wakeups-bound.png) 显示目标、发单轮次和两种投递结果。[无绑定截图](../../reports/task-web-wakeup-status/20261106/evidence/wakeups-unbound.png) 显示普通 MCP 任务的空状态。验收覆盖隔离构建及模拟唤醒宿主，日常服务的上线验证另计。
+[有绑定截图](../../../../reports/task-web-wakeup-status/20261106/evidence/wakeups-bound.png) 显示目标、发单轮次和两种投递结果。[无绑定截图](../../../../reports/task-web-wakeup-status/20261106/evidence/wakeups-unbound.png) 显示普通 MCP 任务的空状态。验收覆盖隔离构建及模拟唤醒宿主，日常服务的上线验证另计。
